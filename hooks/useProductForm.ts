@@ -9,6 +9,7 @@ import type {
   VariantDefinition,
 } from "@/types/product";
 import { createInitialProductForm, DEFAULT_MATRIX_ROW } from "@/lib/utils";
+import { useVariantCalculations } from "@/hooks/useVariantCalculations";
 
 const IMAGE_SLOT_COUNT = 5;
 const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
@@ -88,6 +89,7 @@ export function useProductForm() {
   const logistics = form.inventoryPlan;
   const matrixData = form.matrix;
   const tradeIn = form.tradeIn;
+  const { calculateVariant } = useVariantCalculations();
 
   const combinations = useMemo(() => buildVariantCombinations(variants), [variants]);
 
@@ -143,18 +145,19 @@ export function useProductForm() {
     });
 
   const updateField = useCallback((key: string, field: keyof MatrixPricing, value: number | string) => {
+    const safeValue = typeof value === "number" ? Math.max(0, value) : value;
     setForm((prev) => ({
       ...prev,
       matrix: {
         ...prev.matrix,
-        [key]: {
+        [key]: calculateVariant({
           ...DEFAULT_MATRIX_ROW,
           ...(prev.matrix?.[key] ?? {}),
-          [field]: typeof value === "number" && !Number.isFinite(value) ? 0 : value,
-        },
+          [field]: typeof safeValue === "number" && !Number.isFinite(safeValue) ? 0 : safeValue,
+        }),
       },
     }));
-  }, []);
+  }, [calculateVariant]);
 
   const handleImageChange = (slotIndex: number, file: File | null) => {
     if (!file) {

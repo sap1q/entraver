@@ -62,6 +62,9 @@ const categoryToForm = (category: Category): CategoryFormValues => ({
   removeIcon: false,
 });
 
+let categoryOptionsCache: Category[] | null = null;
+let categoryOptionsPromise: Promise<Category[]> | null = null;
+
 export function useCategories(initialParams: CategoryListParams = {}) {
   const [params, setParams] = useState<CategoryListParams>({
     page: 1,
@@ -395,6 +398,14 @@ export function useCategoryForm(args?: { id?: string; initialCategory?: Category
         setError("Sesi habis atau token tidak valid. Silakan login ulang.");
         return { ok: false as const, unauthorized: true as const };
       }
+      if (axiosError.code === "ECONNABORTED") {
+        setError("Permintaan timeout. Data kategori cukup besar atau koneksi lambat. Silakan coba lagi.");
+        return { ok: false as const, unauthorized: false as const };
+      }
+      if (axiosError.code === "ERR_CANCELED") {
+        setError("Permintaan dibatalkan. Silakan kirim ulang.");
+        return { ok: false as const, unauthorized: false as const };
+      }
       const message = axiosError.response?.data?.message;
       setError(message || (err instanceof Error ? err.message : "Gagal menyimpan kategori"));
       return { ok: false as const, unauthorized: false as const };
@@ -442,4 +453,60 @@ export function useCategoryStats() {
   }, [refresh]);
 
   return { stats, isLoading, error, refresh };
+}
+
+export function useCategoryOptions() {
+  const [categories, setCategories] = useState<Category[]>(() => categoryOptionsCache ?? []);
+  const [loading, setLoading] = useState(!categoryOptionsCache);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (categoryOptionsCache) {
+      setCategories(categoryOptionsCache);
+      setLoading(false);
+      return;
+    }
+
+    let mounted = true;
+
+    const fetchCategories = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        if (!categoryOptionsPromise) {
+          categoryOptionsPromise = categoryApi.getAll({ perPage: 200 }).then((result) => result.data);
+        }
+        const rows = await categoryOptionsPromise;
+        categoryOptionsCache = rows;
+        if (mounted) setCategories(rows);
+      } catch {
+        if (mounted) setError("Gagal memuat kategori");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    fetchCategories();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const options = useMemo(
+    () =>
+      categories.map((category) => ({
+        value: category.id,
+        label: category.name,
+        icon: category.icon ?? category.icon_url ?? category.icon_svg ?? null,
+        min_margin: category.min_margin,
+      })),
+    [categories]
+  );
+
+  const getCategory = useCallback(
+    (id: string) => categories.find((category) => category.id === id),
+    [categories]
+  );
+
+  return { categories, loading, error, options, getCategory };
 }

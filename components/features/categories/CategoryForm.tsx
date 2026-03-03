@@ -255,6 +255,16 @@ export default function CategoryForm({
       </section>
 
       {error ? <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
+      {isSubmitting ? (
+        <div className="space-y-1">
+          <div className="h-2 w-full rounded-full bg-slate-200">
+            <div
+              className="h-2 w-1/3 animate-pulse rounded-full bg-blue-600"
+            />
+          </div>
+          <p className="text-xs text-slate-500">Mengirim data...</p>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap justify-end gap-2">
         {onCancel ? (

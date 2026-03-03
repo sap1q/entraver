@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronsUpDown, Plus } from "lucide-react";
-import { isAxiosError } from "axios";
-import api from "@/lib/axios";
+import api, { isAxiosError } from "@/lib/axios";
 import { useDebounce } from "@/src/hooks/useDebounce";
 import ProductTable, { type ProductTableProduct } from "@/components/features/products/ProductTable";
 
@@ -21,6 +20,19 @@ type ApiProduct = {
     total_stock?: number;
   } | null;
   variant_pricing?: ApiVariantPricingRow[] | null;
+};
+
+type FetchErrorState = {
+  message: string;
+  debug: string;
+};
+
+const isRequestCanceled = (error: unknown): boolean => {
+  if (isAxiosError(error)) {
+    return error.code === "ERR_CANCELED";
+  }
+
+  return error instanceof DOMException && error.name === "AbortError";
 };
 
 const parsePrice = (value: unknown): number | null => {
@@ -96,10 +108,63 @@ const extractProductsFromPayload = (payload: unknown): ApiProduct[] => {
   return [];
 };
 
+const buildFetchErrorState = (error: unknown): FetchErrorState => {
+  if (isAxiosError(error)) {
+    const status = error.response?.status;
+    const url = String(error.config?.url ?? resolveProductsEndpoint());
+    const baseURL = String(error.config?.baseURL ?? api.defaults.baseURL ?? "N/A");
+    const method = String(error.config?.method ?? "GET").toUpperCase();
+
+    if (status === 401) {
+      return {
+        message: "Sesi login berakhir. Silakan login kembali.",
+        debug: `${method} ${baseURL}${url} -> 401`,
+      };
+    }
+
+    if (status === 404) {
+      return {
+        message: "Endpoint produk tidak ditemukan.",
+        debug: `${method} ${baseURL}${url} -> 404`,
+      };
+    }
+
+    if (error.code === "ECONNABORTED") {
+      return {
+        message: "Permintaan timeout. Respons server terlalu lama.",
+        debug: `${method} ${baseURL}${url} -> ECONNABORTED`,
+      };
+    }
+
+    if (error.code === "ERR_NETWORK") {
+      return {
+        message: "Network error. Pastikan API Laravel aktif dan CORS mengizinkan origin frontend.",
+        debug: `${method} ${baseURL}${url} -> ERR_NETWORK`,
+      };
+    }
+
+    const apiMessage =
+      (typeof error.response?.data?.message === "string" && error.response.data.message) ||
+      error.message ||
+      "Gagal memuat data produk.";
+
+    return {
+      message: apiMessage,
+      debug: `${method} ${baseURL}${url} -> ${status ?? "NO_STATUS"}`,
+    };
+  }
+
+  return {
+    message: "Terjadi kesalahan yang tidak diketahui saat memuat produk.",
+    debug: "UNKNOWN_ERROR",
+  };
+};
+
 export default function MasterProdukPage() {
   const [products, setProducts] = useState<ProductTableProduct[]>([]);
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [errorState, setErrorState] = useState<FetchErrorState | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
   const debouncedSearch = useDebounce(search, 500);
 
@@ -109,6 +174,7 @@ export default function MasterProdukPage() {
 
     const fetchProducts = async () => {
       setIsLoading(true);
+      setErrorState(null);
       try {
         const response = await api.get(resolveProductsEndpoint(), {
           params: {
@@ -123,13 +189,19 @@ export default function MasterProdukPage() {
         if (!stillMounted) return;
         setProducts(items.map(mapApiProduct));
       } catch (error) {
+        if (isRequestCanceled(error)) return;
+
+        const nextErrorState = buildFetchErrorState(error);
+
         if (process.env.NODE_ENV === "development") {
           if (isAxiosError(error)) {
             console.error("[Products Fetch Error]", {
+              message: nextErrorState.message,
               status: error.response?.status,
               url: error.config?.url,
               baseURL: error.config?.baseURL,
               params: error.config?.params,
+              code: error.code,
               data: error.response?.data,
             });
           } else {
@@ -138,6 +210,7 @@ export default function MasterProdukPage() {
         }
         if (!stillMounted) return;
         setProducts([]);
+        setErrorState(nextErrorState);
       } finally {
         if (stillMounted) setIsLoading(false);
       }
@@ -196,6 +269,26 @@ export default function MasterProdukPage() {
         onSearchChange={setSearch}
         onRefresh={refreshProducts}
       />
+
+      {errorState ? (
+        <section className="rounded-xl border border-rose-200 bg-rose-50 p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-rose-800">Error loading products</h2>
+          <p className="mt-1 text-sm text-rose-700">{errorState.message}</p>
+          <p className="mt-2 text-xs text-rose-600">
+            Debug: {errorState.debug} | Endpoint: {resolveProductsEndpoint()} | Base URL:{" "}
+            {String(api.defaults.baseURL ?? "N/A")}
+          </p>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={refreshProducts}
+              className="inline-flex items-center rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+            >
+              Coba lagi
+            </button>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

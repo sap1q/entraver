@@ -3,7 +3,7 @@ import api from "@/lib/axios";
 
 export const deleteProduct = async (productId: string): Promise<void> => {
   try {
-    await api.delete(`/v1/products/${productId}`);
+    await api.delete(`/v1/admin/products/${productId}`);
   } catch (error) {
     if (isAxiosError(error)) {
       const message =

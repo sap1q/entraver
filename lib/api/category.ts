@@ -1,4 +1,4 @@
-import api from "@/lib/axios";
+import api, { apiUpload } from "@/lib/axios";
 import type {
   ApiEnvelope,
   BulkDeletePayload,
@@ -194,6 +194,31 @@ const toFormData = (payload: CategoryMutationInput): FormData => {
   return formData;
 };
 
+const createTimeoutSignal = (timeoutMs: number): AbortSignal | undefined => {
+  if (typeof AbortSignal !== "undefined" && "timeout" in AbortSignal) {
+    return AbortSignal.timeout(timeoutMs);
+  }
+  return undefined;
+};
+
+const withTimeoutRetry = async <T>(runner: () => Promise<T>, maxRetries = 2): Promise<T> => {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await runner();
+    } catch (error) {
+      const isAxiosTimeout =
+        typeof error === "object" &&
+        error !== null &&
+        ("code" in error ? (error as { code?: string }).code === "ECONNABORTED" : false);
+      if (!isAxiosTimeout || attempt >= maxRetries) throw error;
+
+      await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+      attempt += 1;
+    }
+  }
+};
+
 const extractList = (payload: unknown): RawCategory[] => {
   if (Array.isArray(payload)) return payload as RawCategory[];
   if (!payload || typeof payload !== "object") return [];
@@ -279,34 +304,40 @@ export const categoryApi = {
   },
 
   async create(payload: CategoryMutationInput): Promise<Category> {
-    const response = await api.post<ApiEnvelope<RawCategory>>(
-      "/v1/admin/categories",
-      toFormData(payload),
-      {
-        withCredentials: true,
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }
+    const response = await withTimeoutRetry(() =>
+      apiUpload.post<ApiEnvelope<RawCategory>>(
+        "/v1/admin/categories",
+        toFormData(payload),
+        {
+          withCredentials: true,
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+          signal: createTimeoutSignal(60000),
+        }
+      )
     );
 
     return normalizeCategory(response.data.data);
   },
 
   async update(id: string, payload: CategoryMutationInput): Promise<Category> {
-    const response = await api.post<ApiEnvelope<RawCategory>>(
-      `/v1/admin/categories/${id}`,
-      (() => {
-        const formData = toFormData(payload);
-        formData.append("_method", "PUT");
-        return formData;
-      })(),
-      {
-        withCredentials: true,
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }
+    const response = await withTimeoutRetry(() =>
+      apiUpload.post<ApiEnvelope<RawCategory>>(
+        `/v1/admin/categories/${id}`,
+        (() => {
+          const formData = toFormData(payload);
+          formData.append("_method", "PUT");
+          return formData;
+        })(),
+        {
+          withCredentials: true,
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+          signal: createTimeoutSignal(60000),
+        }
+      )
     );
 
     return normalizeCategory(response.data.data);
@@ -358,4 +389,3 @@ export const formatFeeSummary = (channel?: FeeChannel): string => {
     })
     .join(", ");
 };
-

@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { isAxiosError } from "axios";
 
 const TOKEN_KEYS = ["entraverse_admin_token", "token", "admin_token"] as const;
 
@@ -52,10 +52,19 @@ export const clearPersistedAuth = () => {
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api",
-  timeout: 10000,
+  timeout: 30000,
   headers: {
     Accept: "application/json",
     "Content-Type": "application/json",
+  },
+});
+
+export const apiUpload = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api",
+  timeout: 60000,
+  headers: {
+    Accept: "application/json",
+    "Content-Type": "multipart/form-data",
   },
 });
 
@@ -79,6 +88,17 @@ api.interceptors.request.use(
       });
     }
 
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+apiUpload.interceptors.request.use(
+  (config) => {
+    const token = getAuthToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => Promise.reject(error)
@@ -114,4 +134,28 @@ api.interceptors.response.use(
   }
 );
 
+apiUpload.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error.response?.status;
+    const requestUrl = String(error.config?.url ?? "");
+    const isAuthFlowRequest =
+      requestUrl.includes("/v1/admin/login") ||
+      requestUrl.includes("/sanctum/csrf-cookie");
+
+    if (status === 401 && typeof window !== "undefined" && !isAuthFlowRequest) {
+      clearPersistedAuth();
+      const isOnLoginPage = window.location.pathname.startsWith("/auth/login");
+      if (!isOnLoginPage) {
+        const currentPath = window.location.pathname + window.location.search;
+        const redirect = encodeURIComponent(currentPath);
+        window.location.href = `/auth/login?redirect=${redirect}`;
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
 export default api;
+export { isAxiosError };

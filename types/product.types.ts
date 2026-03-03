@@ -57,3 +57,43 @@ export interface PricingFormInput {
   tiktokFeePercent: number;
   roundToNearest?: number;
 }
+
+export interface VariantPrice {
+  sku: string;
+  sku_seller?: string;
+  label: string;
+  options: Record<string, string>;
+  purchase_price: number;
+  currency: "SGD" | "USD" | "AUD" | "EUR" | "IDR";
+  exchange_rate: number;
+  shipping: "Udara" | "Laut";
+  arrival_cost: number;
+  purchase_price_idr: number;
+  offline_price: number;
+  entraverse_price: number;
+  tokopedia_price: number;
+  shopee_price: number;
+  stock: number;
+  item_weight: number;
+  avg_sales_a: number;
+  stockout_date_a: string | null;
+  stockout_factor_a: string | null;
+  avg_sales_b: number;
+  stockout_date_b: string | null;
+  stockout_factor_b: string | null;
+  avg_daily_final: number;
+  start_date: string | null;
+  predicted_initial_stock: number;
+  lead_time: number;
+  reorder_point: number;
+  need_15_days: number;
+  in_transit_stock: number;
+  next_procurement: number;
+  status: "Normal" | "Low Stock" | "Out of Stock";
+}
+
+export interface ProductFormData {
+  name: string;
+  category_id: string;
+  category_name?: string;
+}

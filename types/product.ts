@@ -33,10 +33,10 @@ export interface VariantCombination {
 export interface MatrixPricing {
   stock: number;
   purchasePrice: number;
-  currency: string;
+  currency: "SGD" | "USD" | "AUD" | "EUR" | "IDR" | "CNY";
   exchangeRate: number;
   exchangeValue: number;
-  shipping: string;
+  shipping: "Udara" | "Laut" | "Darat";
   shippingCost: number;
   arrivalCost: number;
   offlinePrice: number;
@@ -54,13 +54,14 @@ export interface MatrixPricing {
   stockoutDateB: string;
   stockoutFactorB: string;
   avgDailyFinal: number;
+  startDate: string;
   predictedInitialStock: number;
   leadTime: number;
   reorderPoint: number;
   need15Days: number;
   inTransitStock: number;
   nextProcurement: number;
-  procurementStatus: string;
+  procurementStatus: "Normal" | "Low Stock" | "Out of Stock";
 }
 
 export interface PhotoSlot {
@@ -72,6 +73,7 @@ export interface ProductBasicInfo {
   name: string;
   slug: string;
   category: string;
+  categoryId: string;
   brand: string;
   spu: string;
   status: "active" | "pending_approval" | "inactive";

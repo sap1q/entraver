@@ -3,13 +3,7 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
 import Link from "next/link";
-import BasicInfo from "@/components/features/products/BasicInfo";
-import MediaUpload from "@/components/features/products/MediaUpload";
-import DescriptionEditor from "@/components/features/products/DescriptionEditor";
-import LogisticsParams from "@/components/features/products/LogisticsParams";
-import TradeInToggle from "@/components/features/products/TradeInToggle";
-import VariantManager from "@/components/features/products/VariantManager";
-import VariantMatrix from "@/components/features/products/VariantMatrix";
+import ProductForm from "@/components/features/products/ProductForm";
 import api from "@/lib/axios";
 import { calculateFinalBeli, DEFAULT_MATRIX_ROW } from "@/lib/utils";
 import { useProductForm } from "@/hooks/useProductForm";
@@ -18,29 +12,8 @@ export default function CreateProductPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [payloadPreview, setPayloadPreview] = useState("");
-  const {
-    form,
-    variants,
-    photos,
-    imageErrors,
-    matrixData,
-    combinations,
-    updateField,
-    handleUpdateBasicInfo,
-    logistics,
-    tradeIn,
-    updateLogistics,
-    handleImageChange,
-    handleRemoveImage,
-    handleDescriptionChange,
-    toggleTradeIn,
-    addVariant,
-    removeVariant,
-    updateVariantName,
-    updateDraftOption,
-    addVariantOption,
-    removeVariantOption,
-  } = useProductForm();
+  const formState = useProductForm();
+  const { form, variants, photos, matrixData, combinations } = formState;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -77,6 +50,7 @@ export default function CreateProductPage() {
         stockout_date_b: row.stockoutDateB,
         stockout_factor_b: row.stockoutFactorB,
         avg_daily_final: row.avgDailyFinal,
+        start_date: row.startDate || null,
         predicted_initial_stock: row.predictedInitialStock,
         lead_time: row.leadTime,
         reorder_point: row.reorderPoint,
@@ -89,6 +63,7 @@ export default function CreateProductPage() {
 
     const payload = {
       name: form.basic.name,
+      category_id: form.basic.categoryId || undefined,
       category: form.basic.category,
       brand: form.basic.brand,
       slug: form.basic.slug,
@@ -146,34 +121,7 @@ export default function CreateProductPage() {
           </div>
         </div>
 
-        <div className="space-y-8">
-          <BasicInfo basic={form.basic} handleUpdateBasicInfo={handleUpdateBasicInfo} />
-
-          <MediaUpload
-            photos={photos}
-            imageErrors={imageErrors}
-            handleImageChange={handleImageChange}
-            handleRemoveImage={handleRemoveImage}
-          />
-
-          <DescriptionEditor value={form.description} onChange={handleDescriptionChange} />
-
-          <LogisticsParams logistics={logistics} updateLogistics={updateLogistics} />
-
-          <TradeInToggle tradeIn={tradeIn} toggleTradeIn={toggleTradeIn} />
-
-          <VariantManager
-            variants={variants}
-            onAddVariant={addVariant}
-            onRemoveVariant={removeVariant}
-            onUpdateVariantName={updateVariantName}
-            onUpdateDraftOption={updateDraftOption}
-            onAddVariantOption={addVariantOption}
-            onRemoveVariantOption={removeVariantOption}
-          />
-
-          <VariantMatrix combinations={combinations} matrixData={matrixData} updateField={updateField} />
-        </div>
+        <ProductForm formState={formState} />
 
         {saveMessage && (
           <div

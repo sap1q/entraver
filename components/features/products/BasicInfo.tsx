@@ -1,6 +1,7 @@
 "use client";
 
 import type { ProductBasicInfo } from "@/types/product";
+import CategoryDropdown from "@/components/features/products/CategoryDropdown";
 
 type BasicInfoProps = {
   basic: ProductBasicInfo;
@@ -31,11 +32,12 @@ export default function BasicInfo({ basic, handleUpdateBasicInfo }: BasicInfoPro
         </div>
         <div>
           <label className={baseLabelClass}>Kategori</label>
-          <input
-            value={basic.category}
-            onChange={(event) => handleUpdateBasicInfo("category", event.target.value)}
-            className={baseInputClass}
-            placeholder="Virtual Reality"
+          <CategoryDropdown
+            value={basic.categoryId}
+            onChange={(categoryId, categoryName) => {
+              handleUpdateBasicInfo("categoryId", categoryId);
+              handleUpdateBasicInfo("category", categoryName);
+            }}
           />
         </div>
         <div>
