@@ -1,6 +1,5 @@
 "use client";
 
-import Cookies from "js-cookie";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -22,7 +21,8 @@ import {
   Truck,
   User,
 } from "lucide-react";
-import axios from "@/src/lib/axios";
+import { authApi } from "@/lib/api/auth";
+import { removeStoredAdmin, removeToken } from "@/lib/utils/storage";
 
 type AdminLayoutProps = {
   children: React.ReactNode;
@@ -88,15 +88,12 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     setIsLoggingOut(true);
 
     try {
-      await axios.post(
-        "http://localhost:8000/api/v1/admin/logout",
-        {},
-        { withCredentials: true }
-      );
+      await authApi.logout();
     } catch {
       // Continue logout flow on frontend.
     } finally {
-      Cookies.remove("admin_token");
+      removeToken();
+      removeStoredAdmin();
       router.push("/auth/login");
       setIsLoggingOut(false);
     }

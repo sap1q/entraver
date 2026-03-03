@@ -1,47 +1,14 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import {
-  ChevronDown,
-  ChevronsUpDown,
-  Globe,
-  Loader2,
-  MoreHorizontal,
-  Plus,
-  Search,
-  ShoppingBag,
-} from "lucide-react";
-import api from "@/src/lib/axios";
+import { useCallback, useEffect, useState } from "react";
+import { ChevronsUpDown, Plus } from "lucide-react";
+import { isAxiosError } from "axios";
+import api from "@/lib/axios";
 import { useDebounce } from "@/src/hooks/useDebounce";
+import ProductTable, { type ProductTableProduct } from "@/components/features/products/ProductTable";
 
-type ProductStatus = "active" | "pending" | "inactive";
-
-type VariantPricingRow = {
-  sku: string;
-  label: string;
-  stock: number;
-  offlinePrice: number | null;
-  entraversePrice: number | null;
-  tokopediaPrice: number | null;
-  shopeePrice: number | null;
-};
-
-type ProductRow = {
-  id: string;
-  name: string;
-  spu: string;
-  brand?: string | null;
-  inventory?: {
-    total_stock?: number;
-  };
-  photo: string;
-  status: ProductStatus;
-  platforms: Array<"web" | "tiktok">;
-  variant_pricing?: VariantPricingRow[];
-};
+type ApiVariantPricingRow = Record<string, unknown>;
 
 type ApiProduct = {
   id: string;
@@ -53,11 +20,8 @@ type ApiProduct = {
   inventory?: {
     total_stock?: number;
   } | null;
-  variant_pricing?: Array<Record<string, unknown>> | null;
+  variant_pricing?: ApiVariantPricingRow[] | null;
 };
-
-const statusPillBase =
-  "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition";
 
 const parsePrice = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -68,15 +32,16 @@ const parsePrice = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const normalizeStatus = (status: string | null | undefined): ProductStatus => {
+const normalizeStatus = (status: string | null | undefined): ProductTableProduct["status"] => {
   if (status === "pending" || status === "pending_approval") return "pending";
   if (status === "inactive") return "inactive";
   return "active";
 };
 
-const mapApiProduct = (product: ApiProduct): ProductRow => {
+const mapApiProduct = (product: ApiProduct): ProductTableProduct => {
   const variantRows = Array.isArray(product.variant_pricing) ? product.variant_pricing : [];
-  const normalizedVariants: VariantPricingRow[] = variantRows.map((variant) => {
+
+  const normalizedVariants = variantRows.map((variant) => {
     const skuValue = variant.sku ?? variant.variant_code ?? product.spu ?? "UNKNOWN-SKU";
     const labelValue = variant.label ?? variant.variant_name ?? variant.code ?? "Default";
 
@@ -106,12 +71,36 @@ const mapApiProduct = (product: ApiProduct): ProductRow => {
   };
 };
 
+const resolveProductsEndpoint = (): string => {
+  const base = String(api.defaults.baseURL ?? "").toLowerCase();
+  return base.endsWith("/v1") || base.includes("/api/v1") ? "/products" : "/v1/products";
+};
+
+const extractProductsFromPayload = (payload: unknown): ApiProduct[] => {
+  if (Array.isArray(payload)) {
+    return payload as ApiProduct[];
+  }
+
+  if (payload && typeof payload === "object") {
+    const data = (payload as { data?: unknown }).data;
+
+    if (Array.isArray(data)) {
+      return data as ApiProduct[];
+    }
+
+    if (data && typeof data === "object" && Array.isArray((data as { data?: unknown }).data)) {
+      return (data as { data: ApiProduct[] }).data;
+    }
+  }
+
+  return [];
+};
+
 export default function MasterProdukPage() {
-  const [products, setProducts] = useState<ProductRow[]>([]);
-  const [activeStatus, setActiveStatus] = useState<ProductStatus>("active");
+  const [products, setProducts] = useState<ProductTableProduct[]>([]);
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
   const debouncedSearch = useDebounce(search, 500);
 
   useEffect(() => {
@@ -121,7 +110,7 @@ export default function MasterProdukPage() {
     const fetchProducts = async () => {
       setIsLoading(true);
       try {
-        const response = await api.get("/v1/products", {
+        const response = await api.get(resolveProductsEndpoint(), {
           params: {
             search: debouncedSearch || undefined,
             per_page: 100,
@@ -129,12 +118,24 @@ export default function MasterProdukPage() {
           signal: controller.signal,
         });
 
-        const payload = response.data as { data?: ApiProduct[] };
-        const items = Array.isArray(payload?.data) ? payload.data : [];
+        const items = extractProductsFromPayload(response.data);
 
         if (!stillMounted) return;
         setProducts(items.map(mapApiProduct));
-      } catch {
+      } catch (error) {
+        if (process.env.NODE_ENV === "development") {
+          if (isAxiosError(error)) {
+            console.error("[Products Fetch Error]", {
+              status: error.response?.status,
+              url: error.config?.url,
+              baseURL: error.config?.baseURL,
+              params: error.config?.params,
+              data: error.response?.data,
+            });
+          } else {
+            console.error("[Products Fetch Error]", error);
+          }
+        }
         if (!stillMounted) return;
         setProducts([]);
       } finally {
@@ -148,55 +149,11 @@ export default function MasterProdukPage() {
       stillMounted = false;
       controller.abort();
     };
-  }, [debouncedSearch]);
+  }, [debouncedSearch, reloadTick]);
 
-  const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
-      const matchesStatus = product.status === activeStatus;
-      return matchesStatus;
-    });
-  }, [activeStatus, products]);
-
-  const statusCounts = useMemo(
-    () => ({
-      active: products.filter((product) => product.status === "active").length,
-      pending: products.filter((product) => product.status === "pending").length,
-      inactive: products.filter((product) => product.status === "inactive").length,
-    }),
-    [products]
-  );
-
-  const toggleRow = (id: string) => {
-    setExpandedId((prev) => (prev === id ? null : id));
-  };
-
-  const currencyFormatter = new Intl.NumberFormat("id-ID");
-  const formatPrice = (value: number | null | undefined) =>
-    typeof value === "number" ? `Rp ${currencyFormatter.format(value)}` : "-";
-  const variantList = {
-    hidden: {
-      opacity: 0,
-    },
-    show: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.06,
-      },
-    },
-  };
-  const variantItem = {
-    hidden: {
-      opacity: 0,
-      y: -6,
-    },
-    show: {
-      opacity: 1,
-      y: 0,
-      transition: {
-        duration: 0.18,
-      },
-    },
-  };
+  const refreshProducts = useCallback(() => {
+    setReloadTick((prev) => prev + 1);
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
@@ -209,9 +166,7 @@ export default function MasterProdukPage() {
             </p>
             <p className="mt-2 text-sm text-slate-600">
               Terakhir disinkronisasi Mekari Jurnal pada{" "}
-              <span className="font-semibold text-slate-800">
-                Sabtu, 28 Februari 2026 pukul 23.00
-              </span>
+              <span className="font-semibold text-slate-800">Sabtu, 28 Februari 2026 pukul 23.00</span>
             </p>
           </div>
 
@@ -234,310 +189,13 @@ export default function MasterProdukPage() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-semibold text-slate-800">Daftar Produk</h2>
-              <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-                {filteredProducts.length} produk
-              </span>
-            </div>
-
-            <label className="flex w-full max-w-xs items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-slate-500">
-              <Search className="h-4 w-4 text-blue-500" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search"
-                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-              />
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" /> : null}
-            </label>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveStatus("active")}
-              className={`${statusPillBase} ${
-                activeStatus === "active"
-                  ? "border-blue-500 bg-blue-600 text-white"
-                  : "border-blue-200 bg-blue-50 text-blue-700"
-              }`}
-            >
-              Aktif
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] ${
-                  activeStatus === "active" ? "bg-white/20 text-white" : "bg-white text-blue-700"
-                }`}
-              >
-                {statusCounts.active}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveStatus("pending")}
-              className={`${statusPillBase} ${
-                activeStatus === "pending"
-                  ? "border-blue-500 bg-blue-600 text-white"
-                  : "border-blue-200 bg-blue-50 text-blue-700"
-              }`}
-            >
-              Menunggu Persetujuan
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] ${
-                  activeStatus === "pending" ? "bg-white/20 text-white" : "bg-white text-blue-700"
-                }`}
-              >
-                {statusCounts.pending}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveStatus("inactive")}
-              className={`${statusPillBase} ${
-                activeStatus === "inactive"
-                  ? "border-blue-500 bg-blue-600 text-white"
-                  : "border-blue-200 bg-blue-50 text-blue-700"
-              }`}
-            >
-              Non Aktif
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] ${
-                  activeStatus === "inactive" ? "bg-white/20 text-white" : "bg-white text-blue-700"
-                }`}
-              >
-                {statusCounts.inactive}
-              </span>
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-5 overflow-x-auto">
-          <table className="min-w-full border-separate border-spacing-0">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="border-b border-gray-100 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Foto
-                </th>
-                <th className="border-b border-gray-100 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Nama Produk
-                </th>
-                <th className="border-b border-gray-100 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Status
-                </th>
-                <th className="border-b border-gray-100 px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                Array.from({ length: 3 }).map((_, index) => (
-                  <tr key={`skeleton-${index}`}>
-                    <td className="border-b border-gray-100 px-3 py-4">
-                      <div className="h-12 w-12 animate-pulse rounded-lg bg-slate-200" />
-                    </td>
-                    <td className="border-b border-gray-100 px-3 py-4">
-                      <div className="space-y-2">
-                        <div className="h-4 w-56 animate-pulse rounded bg-slate-200" />
-                        <div className="h-3 w-32 animate-pulse rounded bg-slate-100" />
-                      </div>
-                    </td>
-                    <td className="border-b border-gray-100 px-3 py-4">
-                      <div className="h-7 w-16 animate-pulse rounded-full bg-slate-200" />
-                    </td>
-                    <td className="border-b border-gray-100 px-3 py-4 text-right">
-                      <div className="ml-auto h-8 w-8 animate-pulse rounded-full bg-slate-200" />
-                    </td>
-                  </tr>
-                ))
-              ) : filteredProducts.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-3 py-12 text-center text-sm text-slate-500">
-                    Tidak ada produk yang sesuai filter atau pencarian.
-                  </td>
-                </tr>
-              ) : (
-                filteredProducts.map((product) => {
-                  const isExpanded = product.id === expandedId;
-
-                  return (
-                    <Fragment key={product.id}>
-                      <tr
-                        onClick={() => toggleRow(product.id)}
-                        className={`cursor-pointer transition ${
-                          isExpanded ? "bg-blue-50/70" : "hover:bg-slate-50/80"
-                        }`}
-                      >
-                        <td className="border-b border-gray-100 px-3 py-4 align-top">
-                          <div className="relative h-12 w-12 overflow-hidden rounded-lg border border-gray-100 bg-white">
-                            <Image
-                              src={product.photo}
-                              alt={product.name}
-                              fill
-                              sizes="48px"
-                              className="object-cover"
-                            />
-                          </div>
-                        </td>
-                        <td className="border-b border-gray-100 px-3 py-4 align-top">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-sm font-semibold text-slate-800">{product.name}</p>
-                            <motion.span
-                              initial={false}
-                              animate={{ rotate: isExpanded ? 180 : 0 }}
-                              transition={{ duration: 0.2, ease: "easeInOut" }}
-                              className="mt-0.5 inline-flex"
-                            >
-                              <ChevronDown className="h-4 w-4 text-slate-500" />
-                            </motion.span>
-                          </div>
-                          <p className="mt-1 text-xs text-slate-500">SPU/SKU: {product.spu}</p>
-                          <p className="mt-1 text-xs text-slate-500">Brand: {product.brand ?? "-"}</p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Total Stok: {product.inventory?.total_stock ?? 0}
-                          </p>
-                        </td>
-                        <td className="border-b border-gray-100 px-3 py-4 align-top">
-                          <div className="flex items-center gap-2">
-                            {product.platforms.includes("web") ? (
-                              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600">
-                                <Globe className="h-4 w-4" />
-                              </span>
-                            ) : null}
-                            {product.platforms.includes("tiktok") ? (
-                              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700">
-                                <ShoppingBag className="h-4 w-4" />
-                              </span>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td className="border-b border-gray-100 px-3 py-4 text-right align-top">
-                          <button
-                            type="button"
-                            onClick={(event) => event.stopPropagation()}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-blue-200 text-blue-700 transition hover:bg-blue-50"
-                            aria-label={`Aksi untuk ${product.name}`}
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-
-                      <AnimatePresence initial={false}>
-                        {isExpanded ? (
-                          <tr className="bg-slate-50">
-                            <td colSpan={10} className="border-b border-gray-100 px-3 pb-4">
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: "auto", opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{
-                                  type: "spring",
-                                  stiffness: 300,
-                                  damping: 30,
-                                }}
-                                className="overflow-hidden"
-                              >
-                                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                                    <p className="text-sm font-semibold text-slate-800">
-                                      {product.variant_pricing?.length ?? 0} SKU tersedia
-                                    </p>
-                                    <p className="text-xs text-slate-500">
-                                      Pantau stok dan harga jual offline setiap SKU.
-                                    </p>
-                                  </div>
-
-                                  <div className="overflow-x-auto">
-                                    <table className="min-w-[900px] w-full">
-                                      <thead>
-                                        <tr className="border-b border-blue-200">
-                                          <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                            SKU & Varian
-                                          </th>
-                                          <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                            Stok
-                                          </th>
-                                          <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                            Harga Offline
-                                          </th>
-                                          <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                            Harga Entraverse.id
-                                          </th>
-                                          <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                            Harga Tokopedia
-                                          </th>
-                                          <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                                            Harga Shopee
-                                          </th>
-                                        </tr>
-                                      </thead>
-                                      <motion.tbody
-                                        variants={variantList}
-                                        initial="hidden"
-                                        animate="show"
-                                      >
-                                        {product.variant_pricing?.map((variant) => (
-                                          <motion.tr
-                                            key={variant.sku}
-                                            className="border-b border-blue-100/80"
-                                            variants={variantItem}
-                                          >
-                                            <td className="px-2 py-2.5">
-                                              <p className="text-xs font-semibold text-slate-700">
-                                                {variant.sku}
-                                              </p>
-                                              <p className="text-xs text-slate-500">{variant.label}</p>
-                                            </td>
-                                            <td className="px-2 py-2.5 text-xs text-slate-700">
-                                              {variant.stock}
-                                            </td>
-                                            <td className="px-2 py-2.5 text-xs text-slate-700">
-                                              {formatPrice(variant.offlinePrice)}
-                                            </td>
-                                            <td className="px-2 py-2.5 text-xs text-slate-700">
-                                              {formatPrice(variant.entraversePrice)}
-                                            </td>
-                                            <td className="px-2 py-2.5 text-xs text-slate-700">
-                                              {formatPrice(variant.tokopediaPrice)}
-                                            </td>
-                                            <td className="px-2 py-2.5 text-xs text-slate-700">
-                                              {formatPrice(variant.shopeePrice)}
-                                            </td>
-                                          </motion.tr>
-                                        ))}
-                                        {(product.variant_pricing?.length ?? 0) === 0 ? (
-                                          <motion.tr variants={variantItem}>
-                                            <td
-                                              colSpan={6}
-                                              className="px-2 py-3 text-xs text-slate-500"
-                                            >
-                                              Belum ada varian pada produk ini.
-                                            </td>
-                                          </motion.tr>
-                                        ) : null}
-                                      </motion.tbody>
-                                    </table>
-                                  </div>
-                                </div>
-                              </motion.div>
-                            </td>
-                          </tr>
-                        ) : null}
-                      </AnimatePresence>
-                    </Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <ProductTable
+        products={products}
+        isLoading={isLoading}
+        search={search}
+        onSearchChange={setSearch}
+        onRefresh={refreshProducts}
+      />
     </div>
   );
 }

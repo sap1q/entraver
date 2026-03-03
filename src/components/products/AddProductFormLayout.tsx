@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { FormEvent } from "react";
 import { Package } from "lucide-react";
 import PricingMatrixTable from "@/src/components/product/PricingMatrixTable";
 import type {
@@ -8,9 +9,9 @@ import type {
   ProductFormState,
   VariantCombination,
 } from "@/src/types/product";
-import BasicInfoSection from "./BasicInfoSection";
-import MediaSection from "./MediaSection";
-import VariantManager from "./VariantManager";
+import BasicInfoSection from "@/src/components/products/BasicInfoSection";
+import MediaSection from "@/src/components/products/MediaSection";
+import VariantManager from "@/src/components/products/VariantManager";
 
 type AddProductFormLayoutProps = {
   form: ProductFormState;
@@ -19,7 +20,7 @@ type AddProductFormLayoutProps = {
   isSaving: boolean;
   saveMessage: string;
   payloadPreview: string;
-  onSave: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onBasicFieldChange: <K extends keyof ProductFormState["basic"]>(
     field: K,
     value: ProductFormState["basic"][K]
@@ -51,7 +52,7 @@ export default function AddProductFormLayout({
   isSaving,
   saveMessage,
   payloadPreview,
-  onSave,
+  onSubmit,
   onBasicFieldChange,
   onPhotoChange,
   onDescriptionChange,
@@ -65,9 +66,13 @@ export default function AddProductFormLayout({
   onRemoveVariantOption,
   onUpdateMatrixField,
 }: AddProductFormLayoutProps) {
+  const variants = form.variants ?? [];
+  const combinationsData = combinations ?? [];
+  const matrixData = form.matrix ?? {};
+
   return (
     <div className="mx-auto w-full max-w-7xl">
-      <section className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+      <form onSubmit={onSubmit} className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-semibold text-slate-800">Tambah Produk</h1>
@@ -81,9 +86,8 @@ export default function AddProductFormLayout({
               Batalkan
             </Link>
             <button
-              type="button"
+              type="submit"
               disabled={isSaving}
-              onClick={onSave}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
@@ -186,7 +190,7 @@ export default function AddProductFormLayout({
           </section>
 
           <VariantManager
-            variants={form.variants}
+            variants={variants}
             inputClassName={inputClassName}
             onAddVariant={onAddVariant}
             onRemoveVariant={onRemoveVariant}
@@ -197,8 +201,8 @@ export default function AddProductFormLayout({
           />
 
           <PricingMatrixTable
-            combinations={combinations}
-            matrixData={form.matrix}
+            combinations={combinationsData}
+            matrixData={matrixData}
             updateMatrixField={onUpdateMatrixField}
           />
         </div>
@@ -223,7 +227,7 @@ export default function AddProductFormLayout({
             </pre>
           </div>
         )}
-      </section>
+      </form>
     </div>
   );
 }

@@ -50,3 +50,11 @@ body {
   border-radius: 9999px;
   background: #cbd5e1;
 }
+
+.bg-grid-pattern {
+  background-color: #f8fafc;
+  background-image:
+    linear-gradient(to right, #e5e7eb 1px, transparent 1px),
+    linear-gradient(to bottom, #e5e7eb 1px, transparent 1px);
+  background-size: 20px 20px;
+}

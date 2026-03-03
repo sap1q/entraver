@@ -1,114 +1,54 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import AddProductFormLayout from "@/src/components/products/AddProductFormLayout";
-import api from "@/src/lib/axios";
-import type { MatrixPricing, ProductFormState } from "@/src/types/product";
-import {
-  createInitialProductForm,
-  DEFAULT_MATRIX_ROW,
-  INPUT_BASE_CLASS,
-} from "@/src/utils/product-form-defaults";
-import { calculateFinalBeli, generateCombinations } from "@/src/utils/product-helpers";
+import type { FormEvent } from "react";
+import { useState } from "react";
+import Link from "next/link";
+import BasicInfo from "@/components/features/products/BasicInfo";
+import MediaUpload from "@/components/features/products/MediaUpload";
+import DescriptionEditor from "@/components/features/products/DescriptionEditor";
+import LogisticsParams from "@/components/features/products/LogisticsParams";
+import TradeInToggle from "@/components/features/products/TradeInToggle";
+import VariantManager from "@/components/features/products/VariantManager";
+import VariantMatrix from "@/components/features/products/VariantMatrix";
+import api from "@/lib/axios";
+import { calculateFinalBeli, DEFAULT_MATRIX_ROW } from "@/lib/utils";
+import { useProductForm } from "@/hooks/useProductForm";
 
 export default function CreateProductPage() {
-  const [form, setForm] = useState<ProductFormState>(createInitialProductForm);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [payloadPreview, setPayloadPreview] = useState("");
+  const {
+    form,
+    variants,
+    photos,
+    imageErrors,
+    matrixData,
+    combinations,
+    updateField,
+    handleUpdateBasicInfo,
+    logistics,
+    tradeIn,
+    updateLogistics,
+    handleImageChange,
+    handleRemoveImage,
+    handleDescriptionChange,
+    toggleTradeIn,
+    addVariant,
+    removeVariant,
+    updateVariantName,
+    updateDraftOption,
+    addVariantOption,
+    removeVariantOption,
+  } = useProductForm();
 
-  const combinations = useMemo(() => generateCombinations(form.variants), [form.variants]);
-
-  useEffect(() => {
-    setForm((prev) => {
-      const nextMatrix: Record<string, MatrixPricing> = {};
-      combinations.forEach((combo) => {
-        nextMatrix[combo.key] = { ...DEFAULT_MATRIX_ROW, ...(prev.matrix[combo.key] ?? {}) };
-      });
-      return { ...prev, matrix: nextMatrix };
-    });
-  }, [combinations]);
-
-  useEffect(() => () => form.photos.forEach((slot) => slot.preview && URL.revokeObjectURL(slot.preview)), [form.photos]);
-
-  const updateBasicField = <K extends keyof ProductFormState["basic"]>(field: K, value: ProductFormState["basic"][K]) =>
-    setForm((prev) => ({ ...prev, basic: { ...prev.basic, [field]: value } }));
-
-  const updateInventoryField = (field: keyof ProductFormState["inventoryPlan"], value: number) =>
-    setForm((prev) => ({
-      ...prev,
-      inventoryPlan: { ...prev.inventoryPlan, [field]: Number.isFinite(value) ? value : 0 },
-    }));
-
-  const updateMatrixField = useCallback((key: string, field: keyof MatrixPricing, value: number | string) => {
-    setForm((prev) => ({
-      ...prev,
-      matrix: {
-        ...prev.matrix,
-        [key]: {
-          ...DEFAULT_MATRIX_ROW,
-          ...(prev.matrix[key] ?? {}),
-          [field]: typeof value === "number" && !Number.isFinite(value) ? 0 : value,
-        },
-      },
-    }));
-  }, []);
-
-  const updatePhotoSlot = (slotIndex: number, file: File | null) =>
-    setForm((prev) => {
-      const nextSlots = [...prev.photos];
-      const currentPreview = nextSlots[slotIndex]?.preview;
-      if (currentPreview) URL.revokeObjectURL(currentPreview);
-      nextSlots[slotIndex] = { file, preview: file ? URL.createObjectURL(file) : "" };
-      return { ...prev, photos: nextSlots };
-    });
-
-  const addVariant = () =>
-    setForm((prev) => ({
-      ...prev,
-      variants: [...prev.variants, { id: crypto.randomUUID(), name: "", options: [], draftOption: "" }],
-    }));
-
-  const removeVariant = (variantId: string) =>
-    setForm((prev) => ({ ...prev, variants: prev.variants.filter((variant) => variant.id !== variantId) }));
-
-  const updateVariantName = (variantId: string, value: string) =>
-    setForm((prev) => ({
-      ...prev,
-      variants: prev.variants.map((variant) => (variant.id === variantId ? { ...variant, name: value } : variant)),
-    }));
-
-  const updateDraftOption = (variantId: string, value: string) =>
-    setForm((prev) => ({
-      ...prev,
-      variants: prev.variants.map((variant) => (variant.id === variantId ? { ...variant, draftOption: value } : variant)),
-    }));
-
-  const addVariantOption = (variantId: string) =>
-    setForm((prev) => ({
-      ...prev,
-      variants: prev.variants.map((variant) => {
-        if (variant.id !== variantId) return variant;
-        const nextValue = variant.draftOption.trim();
-        if (!nextValue || variant.options.includes(nextValue)) return variant;
-        return { ...variant, options: [...variant.options, nextValue], draftOption: "" };
-      }),
-    }));
-
-  const removeVariantOption = (variantId: string, option: string) =>
-    setForm((prev) => ({
-      ...prev,
-      variants: prev.variants.map((variant) =>
-        variant.id === variantId ? { ...variant, options: variant.options.filter((entry) => entry !== option) } : variant
-      ),
-    }));
-
-  const handleSave = async () => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setIsSaving(true);
     setSaveMessage("");
 
     const variantPricingPayload = combinations.map((combo) => {
-      const row = form.matrix[combo.key] ?? DEFAULT_MATRIX_ROW;
+      const row = matrixData?.[combo.key] ?? DEFAULT_MATRIX_ROW;
       return {
         sku: `${form.basic.spu || "SKU"}-${combo.key.replaceAll("|", "-").replaceAll(":", "-")}`,
         label: combo.label,
@@ -125,7 +65,9 @@ export default function CreateProductPage() {
         offline_price: row.offlinePrice,
         entraverse_price: row.entraversePrice,
         tokopedia_price: row.tokopediaPrice,
+        tokopedia_fee: row.tokopediaFee,
         shopee_price: row.shopeePrice,
+        shopee_fee: row.shopeeFee,
         sku_seller: row.skuSeller,
         item_weight: row.itemWeight,
         avg_sales_a: row.avgSalesA,
@@ -149,6 +91,7 @@ export default function CreateProductPage() {
       name: form.basic.name,
       category: form.basic.category,
       brand: form.basic.brand,
+      slug: form.basic.slug,
       spu: form.basic.spu,
       barcode: form.basic.barcode,
       product_status: form.basic.status,
@@ -162,9 +105,9 @@ export default function CreateProductPage() {
           : { length: 0, width: 0, height: 0 },
         volume_m3: form.inventoryPlan.volume,
       },
-      variants: form.variants.map((variant) => ({ name: variant.name, options: variant.options })),
+      variants: variants.map((variant) => ({ name: variant.name, options: variant.options })),
       variant_pricing: variantPricingPayload,
-      photos: form.photos.filter((slot) => slot.file).map((slot) => slot.file?.name ?? ""),
+      photos: photos.filter((slot) => slot.file).map((slot) => slot.file?.name ?? ""),
     };
 
     setPayloadPreview(JSON.stringify(payload, null, 2));
@@ -179,26 +122,80 @@ export default function CreateProductPage() {
   };
 
   return (
-    <AddProductFormLayout
-      form={form}
-      combinations={combinations}
-      inputClassName={INPUT_BASE_CLASS}
-      isSaving={isSaving}
-      saveMessage={saveMessage}
-      payloadPreview={payloadPreview}
-      onSave={handleSave}
-      onBasicFieldChange={updateBasicField}
-      onPhotoChange={updatePhotoSlot}
-      onDescriptionChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
-      onInventoryFieldChange={updateInventoryField}
-      onToggleTradeIn={() => setForm((prev) => ({ ...prev, tradeIn: !prev.tradeIn }))}
-      onAddVariant={addVariant}
-      onRemoveVariant={removeVariant}
-      onUpdateVariantName={updateVariantName}
-      onUpdateDraftOption={updateDraftOption}
-      onAddVariantOption={addVariantOption}
-      onRemoveVariantOption={removeVariantOption}
-      onUpdateMatrixField={updateMatrixField}
-    />
+    <div className="mx-auto w-full max-w-7xl">
+      <form onSubmit={handleSubmit} className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold text-slate-800">Tambah Produk</h1>
+            <p className="mt-1 text-sm text-slate-500">Perbarui detail produk dan varian Anda.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/admin/master-produk"
+              className="rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-50"
+            >
+              Batalkan
+            </Link>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-8">
+          <BasicInfo basic={form.basic} handleUpdateBasicInfo={handleUpdateBasicInfo} />
+
+          <MediaUpload
+            photos={photos}
+            imageErrors={imageErrors}
+            handleImageChange={handleImageChange}
+            handleRemoveImage={handleRemoveImage}
+          />
+
+          <DescriptionEditor value={form.description} onChange={handleDescriptionChange} />
+
+          <LogisticsParams logistics={logistics} updateLogistics={updateLogistics} />
+
+          <TradeInToggle tradeIn={tradeIn} toggleTradeIn={toggleTradeIn} />
+
+          <VariantManager
+            variants={variants}
+            onAddVariant={addVariant}
+            onRemoveVariant={removeVariant}
+            onUpdateVariantName={updateVariantName}
+            onUpdateDraftOption={updateDraftOption}
+            onAddVariantOption={addVariantOption}
+            onRemoveVariantOption={removeVariantOption}
+          />
+
+          <VariantMatrix combinations={combinations} matrixData={matrixData} updateField={updateField} />
+        </div>
+
+        {saveMessage && (
+          <div
+            className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+              saveMessage.includes("berhasil")
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-amber-200 bg-amber-50 text-amber-700"
+            }`}
+          >
+            {saveMessage}
+          </div>
+        )}
+
+        {payloadPreview && (
+          <div className="mt-6">
+            <p className="mb-2 text-sm font-semibold text-slate-700">Preview Payload JSON</p>
+            <pre className="max-h-72 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
+              {payloadPreview}
+            </pre>
+          </div>
+        )}
+      </form>
+    </div>
   );
 }
