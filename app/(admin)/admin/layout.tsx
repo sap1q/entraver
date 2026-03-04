@@ -191,6 +191,17 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                     <ShoppingCart className="h-4 w-4" />
                     <span>Marketplace Produk</span>
                   </Link>
+                  <Link
+                    href="/admin/products/inventory"
+                    onClick={closeMobileSidebar}
+                    className={menuItemClass(pathname.startsWith("/admin/products/inventory"))}
+                  >
+                    {pathname.startsWith("/admin/products/inventory") ? (
+                      <span className="absolute left-0 top-[calc(50%-12px)] h-6 w-1 rounded-r bg-[#2563EB]" />
+                    ) : null}
+                    <Box className="h-4 w-4" />
+                    <span>Manajemen Stok</span>
+                  </Link>
                 </div>
               ) : null}
 

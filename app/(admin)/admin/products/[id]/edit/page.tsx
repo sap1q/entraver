@@ -1,3 +1,454 @@
-import CreateProductPage from "../../create/page";
+"use client";
 
-export default CreateProductPage;
+import type { FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import ProductForm from "@/components/features/products/ProductForm";
+import { useProduct, type ProductDetail } from "@/hooks/useProduct";
+import { useProductForm } from "@/hooks/useProductForm";
+import { useProductSubmit } from "@/hooks/useProductSubmit";
+import { calculateFinalBeli, DEFAULT_MATRIX_ROW } from "@/lib/utils";
+import type { MatrixPricing, ProductFormState, VariantDefinition } from "@/types/product";
+import {
+  PRODUCT_MEDIA_MAX_PHOTOS,
+  buildMediaSubmission,
+  isPersistablePhotoPath,
+} from "@/lib/product-media";
+import { normalizeDescriptionHtml } from "@/lib/description";
+
+type RawMatrixRow = Record<string, unknown>;
+
+const toNumber = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const normalized = value.replace(/[^\d.-]/g, "");
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const toText = (value: unknown): string => (typeof value === "string" ? value : "");
+
+const toSlug = (value: string): string =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+
+const normalizeVariantDefinitions = (product: ProductDetail): VariantDefinition[] => {
+  const source = Array.isArray(product.variants) ? product.variants : [];
+  const fromVariants = source
+    .filter((item): item is { name?: unknown; options?: unknown } => typeof item === "object" && item !== null)
+    .map((item) => {
+      const name = toText(item.name).trim();
+      const options = Array.isArray(item.options)
+        ? item.options.map((entry) => toText(entry).trim()).filter(Boolean)
+        : [];
+      return { id: crypto.randomUUID(), name, options, draftOption: "" };
+    })
+    .filter((item) => item.name.length > 0 && item.options.length > 0);
+
+  if (fromVariants.length > 0) return fromVariants;
+
+  const optionMap = new Map<string, Set<string>>();
+  const pricingRows = Array.isArray(product.variant_pricing) ? product.variant_pricing : [];
+  pricingRows.forEach((row) => {
+    if (!row || typeof row !== "object") return;
+    const options = (row as { options?: unknown }).options;
+    if (!options || typeof options !== "object") return;
+
+    Object.entries(options as Record<string, unknown>).forEach(([name, value]) => {
+      const cleanName = name.trim();
+      const cleanValue = toText(value).trim();
+      if (!cleanName || !cleanValue) return;
+      if (!optionMap.has(cleanName)) optionMap.set(cleanName, new Set<string>());
+      optionMap.get(cleanName)?.add(cleanValue);
+    });
+  });
+
+  const derived = Array.from(optionMap.entries())
+    .map(([name, options]) => ({
+      id: crypto.randomUUID(),
+      name,
+      options: Array.from(options),
+      draftOption: "",
+    }))
+    .filter((variant) => variant.name.length > 0 && variant.options.length > 0);
+
+  return derived.length > 0
+    ? derived
+    : [{ id: crypto.randomUUID(), name: "Garansi", options: ["Tanpa Garansi"], draftOption: "" }];
+};
+
+const buildVariantKey = (options: Record<string, unknown>, variantNames: string[]): string => {
+  const entries = variantNames
+    .map((name) => [name, toText(options[name]).trim()] as const)
+    .filter(([, value]) => value.length > 0);
+
+  if (entries.length > 0) {
+    return entries.map(([name, value]) => `${name}:${value}`).join("|");
+  }
+
+  const fallback = Object.entries(options)
+    .map(([name, value]) => [name.trim(), toText(value).trim()] as const)
+    .filter(([name, value]) => name.length > 0 && value.length > 0);
+
+  return fallback.length > 0 ? fallback.map(([name, value]) => `${name}:${value}`).join("|") : "default";
+};
+
+const buildVariantCombinationsForPrefill = (variants: VariantDefinition[]) => {
+  const normalized = variants
+    .map((variant) => ({
+      name: variant.name.trim(),
+      options: variant.options.map((option) => option.trim()).filter(Boolean),
+    }))
+    .filter((variant) => variant.name.length > 0 && variant.options.length > 0);
+
+  if (normalized.length === 0) return [{ key: "default", label: "Default", values: {} as Record<string, string> }];
+
+  let combinations: Array<Record<string, string>> = [{}];
+  normalized.forEach((variant) => {
+    const next: Array<Record<string, string>> = [];
+    combinations.forEach((current) => {
+      variant.options.forEach((option) => {
+        next.push({ ...current, [variant.name]: option });
+      });
+    });
+    combinations = next;
+  });
+
+  return combinations.map((values) => {
+    const entries = Object.entries(values);
+    return {
+      key: entries.map(([name, option]) => `${name}:${option}`).join("|"),
+      label: entries.map(([name, option]) => `${name}: ${option}`).join(" / "),
+      values,
+    };
+  });
+};
+
+const mapPricingRow = (row: RawMatrixRow): MatrixPricing => ({
+  ...DEFAULT_MATRIX_ROW,
+  stock: Math.max(0, toNumber(row.stock)),
+  purchasePrice: Math.max(0, toNumber(row.purchase_price)),
+  currency: (toText(row.currency) as MatrixPricing["currency"]) || DEFAULT_MATRIX_ROW.currency,
+  exchangeRate: Math.max(0, toNumber(row.exchange_rate)),
+  exchangeValue: Math.max(0, toNumber(row.exchange_value)),
+  shipping: (toText(row.shipping) as MatrixPricing["shipping"]) || DEFAULT_MATRIX_ROW.shipping,
+  shippingCost: Math.max(0, toNumber(row.shipping_cost)),
+  arrivalCost: Math.max(0, toNumber(row.arrival_cost)),
+  offlinePrice: Math.max(0, toNumber(row.offline_price)),
+  entraversePrice: Math.max(0, toNumber(row.entraverse_price)),
+  tokopediaPrice: Math.max(0, toNumber(row.tokopedia_price)),
+  tokopediaFee: Math.max(0, toNumber(row.tokopedia_fee)),
+  shopeePrice: Math.max(0, toNumber(row.shopee_price)),
+  shopeeFee: Math.max(0, toNumber(row.shopee_fee)),
+  skuSeller: toText(row.sku_seller),
+  itemWeight: Math.max(0, toNumber(row.item_weight)),
+  avgSalesA: Math.max(0, toNumber(row.avg_sales_a)),
+  stockoutDateA: toText(row.stockout_date_a) || DEFAULT_MATRIX_ROW.stockoutDateA,
+  stockoutFactorA: toText(row.stockout_factor_a) || DEFAULT_MATRIX_ROW.stockoutFactorA,
+  avgSalesB: Math.max(0, toNumber(row.avg_sales_b)),
+  stockoutDateB: toText(row.stockout_date_b) || DEFAULT_MATRIX_ROW.stockoutDateB,
+  stockoutFactorB: toText(row.stockout_factor_b) || DEFAULT_MATRIX_ROW.stockoutFactorB,
+  avgDailyFinal: Math.max(0, toNumber(row.avg_daily_final)),
+  startDate: toText(row.start_date),
+  predictedInitialStock: Math.max(0, toNumber(row.predicted_initial_stock)),
+  leadTime: Math.max(0, toNumber(row.lead_time)),
+  reorderPoint: Math.max(0, toNumber(row.reorder_point)),
+  need15Days: Math.max(0, toNumber(row.need_15_days)),
+  inTransitStock: Math.max(0, toNumber(row.in_transit_stock)),
+  nextProcurement: Math.max(0, toNumber(row.next_procurement)),
+  procurementStatus:
+    (toText(row.status) as MatrixPricing["procurementStatus"]) || DEFAULT_MATRIX_ROW.procurementStatus,
+});
+
+const buildPrefilledState = (product: ProductDetail): ProductFormState => {
+  const variantDefinitions = normalizeVariantDefinitions(product);
+  const combinations = buildVariantCombinationsForPrefill(variantDefinitions);
+  const combinationByLabel = new Map(combinations.map((combo) => [combo.label.trim().toLowerCase(), combo.key]));
+  const variantNames = variantDefinitions.map((variant) => variant.name);
+  const pricingRows = Array.isArray(product.variant_pricing) ? product.variant_pricing : [];
+  const matrix: Record<string, MatrixPricing> = {};
+
+  pricingRows.forEach((row) => {
+    if (!row || typeof row !== "object") return;
+    const rowObj = row as RawMatrixRow;
+    const options = (rowObj.options ?? {}) as Record<string, unknown>;
+    const keyFromOptions = buildVariantKey(options, variantNames);
+    const keyFromLabel = combinationByLabel.get(toText(rowObj.label).trim().toLowerCase());
+    const key = keyFromOptions !== "default" ? keyFromOptions : (keyFromLabel ?? "default");
+    matrix[key] = mapPricingRow(row as RawMatrixRow);
+  });
+
+  if (Object.keys(matrix).length === 0) {
+    matrix.default = { ...DEFAULT_MATRIX_ROW };
+  }
+
+  const rawInventory = product.inventory && typeof product.inventory === "object" ? product.inventory : {};
+  const dimensions =
+    rawInventory && typeof rawInventory.dimensions_cm === "object" && rawInventory.dimensions_cm !== null
+      ? (rawInventory.dimensions_cm as Record<string, unknown>)
+      : {};
+
+  const rawPhotos = Array.isArray(product.photos) ? product.photos : [];
+  const photoUrls = rawPhotos
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (item && typeof item === "object" && typeof (item as { url?: unknown }).url === "string") {
+        return String((item as { url: string }).url);
+      }
+      return "";
+    })
+    .filter((url) => isPersistablePhotoPath(url))
+    .filter((url) => url.length > 0)
+    .slice(0, PRODUCT_MEDIA_MAX_PHOTOS);
+
+  const photos = Array.from({ length: PRODUCT_MEDIA_MAX_PHOTOS }, (_, index) => ({
+    file: null,
+    preview: photoUrls[index] ?? "",
+  }));
+
+  const status = toText(product.product_status ?? product.status);
+
+  return {
+    basic: {
+      name: toText(product.name),
+      slug: toText(product.slug) || toSlug(toText(product.name)),
+      category: toText(product.category),
+      categoryId: toText(product.category_id),
+      brand: toText(product.brand),
+      spu: toText(product.spu),
+      status:
+        status === "inactive" || status === "pending_approval"
+          ? status
+          : ("active" as ProductFormState["basic"]["status"]),
+      barcode: toText(product.barcode),
+    },
+    description: toText(product.description),
+    inventoryPlan: {
+      weight: Math.max(0, toNumber(rawInventory.weight)),
+      length: Math.max(0, toNumber(dimensions.length)),
+      width: Math.max(0, toNumber(dimensions.width)),
+      height: Math.max(0, toNumber(dimensions.height)),
+      volume: Math.max(0, toNumber(rawInventory.volume_m3)),
+    },
+    tradeIn: Boolean(product.trade_in),
+    photos,
+    variants: variantDefinitions,
+    matrix,
+  };
+};
+
+export default function EditProductPage() {
+  const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const productId = String(params?.id ?? "");
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const initializedProductIdRef = useRef<string | null>(null);
+
+  const { product, loading, error, notFound } = useProduct(productId);
+  const formState = useProductForm();
+  const { submitProduct, loading: submitLoading, error: submitError } = useProductSubmit();
+  const { form, variants, photos, matrixData, combinations, setForm } = formState;
+
+  useEffect(() => {
+    if (!product) return;
+    if (initializedProductIdRef.current === productId) return;
+    setForm(buildPrefilledState(product));
+    initializedProductIdRef.current = productId;
+  }, [product, productId, setForm]);
+
+  const canSubmit = useMemo(
+    () => Boolean(product) && !loading && !isSaving && !submitLoading,
+    [isSaving, loading, product, submitLoading]
+  );
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!productId) return;
+    setIsSaving(true);
+    setSaveMessage("");
+    const mediaSubmission = buildMediaSubmission(photos);
+
+    const variantPricingPayload = combinations.map((combo) => {
+      const row = matrixData?.[combo.key] ?? DEFAULT_MATRIX_ROW;
+      return {
+        sku: `${form.basic.spu || "SKU"}-${combo.key.replaceAll("|", "-").replaceAll(":", "-")}`,
+        label: combo.label,
+        options: combo.values,
+        stock: row.stock,
+        purchase_price: row.purchasePrice,
+        currency: row.currency,
+        exchange_rate: row.exchangeRate,
+        exchange_value: row.exchangeValue,
+        shipping: row.shipping,
+        shipping_cost: row.shippingCost,
+        arrival_cost: row.arrivalCost,
+        purchase_price_idr: calculateFinalBeli(row),
+        offline_price: row.offlinePrice,
+        entraverse_price: row.entraversePrice,
+        tokopedia_price: row.tokopediaPrice,
+        tokopedia_fee: row.tokopediaFee,
+        shopee_price: row.shopeePrice,
+        shopee_fee: row.shopeeFee,
+        sku_seller: row.skuSeller,
+        item_weight: row.itemWeight,
+        avg_sales_a: row.avgSalesA,
+        stockout_date_a: row.stockoutDateA,
+        stockout_factor_a: row.stockoutFactorA,
+        avg_sales_b: row.avgSalesB,
+        stockout_date_b: row.stockoutDateB,
+        stockout_factor_b: row.stockoutFactorB,
+        avg_daily_final: row.avgDailyFinal,
+        start_date: row.startDate || null,
+        predicted_initial_stock: row.predictedInitialStock,
+        lead_time: row.leadTime,
+        reorder_point: row.reorderPoint,
+        need_15_days: row.need15Days,
+        in_transit_stock: row.inTransitStock,
+        next_procurement: row.nextProcurement,
+        status: row.procurementStatus,
+      };
+    });
+
+    const payload = {
+      name: form.basic.name,
+      category_id: form.basic.categoryId || undefined,
+      category: form.basic.category,
+      brand: form.basic.brand,
+      slug: form.basic.slug,
+      spu: form.basic.spu,
+      barcode: form.basic.barcode,
+      product_status: form.basic.status,
+      trade_in: form.tradeIn,
+      description: normalizeDescriptionHtml(form.description),
+      inventory: {
+        total_stock: variantPricingPayload.reduce((sum, row) => sum + row.stock, 0),
+        weight: form.inventoryPlan.weight,
+        dimensions_cm: {
+          length: form.inventoryPlan.length,
+          width: form.inventoryPlan.width,
+          height: form.inventoryPlan.height,
+        },
+        volume_m3: form.inventoryPlan.volume,
+      },
+      variants: variants.map((variant) => ({ name: variant.name, options: variant.options })),
+      variant_pricing: variantPricingPayload,
+      photos: mediaSubmission.photos,
+    };
+
+    const formData = new FormData();
+    formData.append("name", payload.name);
+    formData.append("category", payload.category);
+    formData.append("brand", payload.brand);
+    formData.append("slug", payload.slug);
+    formData.append("spu", payload.spu);
+    formData.append("barcode", payload.barcode);
+    formData.append("product_status", payload.product_status);
+    formData.append("trade_in", payload.trade_in ? "1" : "0");
+    formData.append("description", payload.description);
+    if (payload.category_id) formData.append("category_id", payload.category_id);
+    formData.append("inventory", JSON.stringify(payload.inventory));
+    formData.append("variants", JSON.stringify(payload.variants));
+    formData.append("variant_pricing", JSON.stringify(payload.variant_pricing));
+    formData.append("photos", JSON.stringify(payload.photos));
+    mediaSubmission.files.forEach((file) => {
+      formData.append("images[]", file);
+    });
+
+    const result = await submitProduct({ payload: formData, mode: "edit", productId });
+    if (result.ok) {
+      setSaveMessage("Produk berhasil diperbarui.");
+      router.push("/admin/master-produk");
+      setIsSaving(false);
+      return;
+    }
+
+    if ("validationErrors" in result) {
+      const firstError = Object.values(result.validationErrors)[0]?.[0];
+      setSaveMessage(firstError || "Validasi gagal. Periksa kembali data produk.");
+      setIsSaving(false);
+      return;
+    }
+
+    setSaveMessage(submitError ?? "Terjadi kesalahan saat menyimpan perubahan.");
+    setIsSaving(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="mx-auto w-full max-w-7xl rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+        <div className="space-y-3">
+          <div className="h-8 w-72 animate-pulse rounded bg-slate-100" />
+          <div className="h-[520px] animate-pulse rounded bg-slate-100" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!loading && (notFound || error || !product)) {
+    return (
+      <div className="mx-auto w-full max-w-3xl rounded-xl border border-rose-200 bg-rose-50 p-6">
+        <h1 className="text-xl font-semibold text-rose-800">Gagal memuat produk</h1>
+        <p className="mt-2 text-sm text-rose-700">{error ?? "Produk tidak ditemukan."}</p>
+        <div className="mt-4 flex items-center gap-2">
+          <Link
+            href="/admin/master-produk"
+            className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+          >
+            Kembali ke daftar
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-7xl">
+      <form onSubmit={handleSubmit} className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold text-slate-800">Edit Produk</h1>
+            <p className="mt-1 text-sm text-slate-500">Perbarui detail produk dan varian Anda.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/admin/master-produk"
+              className="rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-50"
+            >
+              Batalkan
+            </Link>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSaving || submitLoading ? "Menyimpan..." : "Update Produk"}
+            </button>
+          </div>
+        </div>
+
+        <ProductForm formState={formState} />
+
+        {saveMessage ? (
+          <div
+            className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+              saveMessage.includes("berhasil")
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-rose-200 bg-rose-50 text-rose-700"
+            }`}
+          >
+            {saveMessage}
+          </div>
+        ) : null}
+      </form>
+    </div>
+  );
+}

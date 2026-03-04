@@ -56,6 +56,7 @@ const api = axios.create({
   headers: {
     Accept: "application/json",
     "Content-Type": "application/json",
+    "X-Requested-With": "XMLHttpRequest",
   },
 });
 
@@ -65,6 +66,7 @@ export const apiUpload = axios.create({
   headers: {
     Accept: "application/json",
     "Content-Type": "multipart/form-data",
+    "X-Requested-With": "XMLHttpRequest",
   },
 });
 

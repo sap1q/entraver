@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, Globe, ShoppingBag } from "lucide-react";
 import ProductActions from "@/components/features/products/ProductActions";
@@ -95,7 +94,18 @@ export default function ProductTableRow({
       >
         <td className="border-b border-gray-100 px-3 py-4 align-top">
           <div className="relative h-12 w-12 overflow-hidden rounded-lg border border-gray-100 bg-white">
-            <Image src={product.photo} alt={product.name} fill sizes="48px" className="object-cover" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={product.photo || "/product-placeholder.svg"}
+              alt={product.name}
+              className="h-full w-full object-cover"
+              loading="lazy"
+              onError={(event) => {
+                if (event.currentTarget.dataset.fallbackApplied === "1") return;
+                event.currentTarget.dataset.fallbackApplied = "1";
+                event.currentTarget.src = "/product-placeholder.svg";
+              }}
+            />
           </div>
         </td>
 
@@ -194,8 +204,12 @@ export default function ProductTableRow({
                         </tr>
                       </thead>
                       <motion.tbody variants={variantList} initial="hidden" animate="show">
-                        {product.variant_pricing?.map((variant) => (
-                          <motion.tr key={variant.sku} className="border-b border-blue-100/80" variants={variantItem}>
+                        {product.variant_pricing?.map((variant, index) => (
+                          <motion.tr
+                            key={`${product.id}:${variant.sku}:${variant.label}:${index}`}
+                            className="border-b border-blue-100/80"
+                            variants={variantItem}
+                          >
                             <td className="px-2 py-2.5">
                               <p className="text-xs font-semibold text-slate-700">{variant.sku}</p>
                               <p className="text-xs text-slate-500">{variant.label}</p>

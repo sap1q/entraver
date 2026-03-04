@@ -3,22 +3,26 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import ProductForm from "@/components/features/products/ProductForm";
-import api from "@/lib/axios";
 import { calculateFinalBeli, DEFAULT_MATRIX_ROW } from "@/lib/utils";
 import { useProductForm } from "@/hooks/useProductForm";
+import { useProductSubmit } from "@/hooks/useProductSubmit";
+import { buildMediaSubmission } from "@/lib/product-media";
+import { normalizeDescriptionHtml } from "@/lib/description";
 
 export default function CreateProductPage() {
-  const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [payloadPreview, setPayloadPreview] = useState("");
+  const router = useRouter();
   const formState = useProductForm();
+  const { submitProduct, loading, error } = useProductSubmit();
   const { form, variants, photos, matrixData, combinations } = formState;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setIsSaving(true);
     setSaveMessage("");
+    const mediaSubmission = buildMediaSubmission(photos);
 
     const variantPricingPayload = combinations.map((combo) => {
       const row = matrixData?.[combo.key] ?? DEFAULT_MATRIX_ROW;
@@ -71,7 +75,7 @@ export default function CreateProductPage() {
       barcode: form.basic.barcode,
       product_status: form.basic.status,
       trade_in: form.tradeIn,
-      description: form.description,
+      description: normalizeDescriptionHtml(form.description),
       inventory: {
         total_stock: variantPricingPayload.reduce((sum, row) => sum + row.stock, 0),
         weight: form.inventoryPlan.weight,
@@ -82,18 +86,52 @@ export default function CreateProductPage() {
       },
       variants: variants.map((variant) => ({ name: variant.name, options: variant.options })),
       variant_pricing: variantPricingPayload,
-      photos: photos.filter((slot) => slot.file).map((slot) => slot.file?.name ?? ""),
+      photos: mediaSubmission.photos,
     };
 
-    setPayloadPreview(JSON.stringify(payload, null, 2));
-    try {
-      await api.post("/v1/admin/products", payload);
+    const formData = new FormData();
+    formData.append("name", payload.name);
+    formData.append("category", payload.category);
+    formData.append("brand", payload.brand);
+    formData.append("slug", payload.slug);
+    formData.append("spu", payload.spu);
+    formData.append("barcode", payload.barcode);
+    formData.append("product_status", payload.product_status);
+    formData.append("trade_in", payload.trade_in ? "1" : "0");
+    formData.append("description", payload.description);
+    if (payload.category_id) formData.append("category_id", payload.category_id);
+    formData.append("inventory", JSON.stringify(payload.inventory));
+    formData.append("variants", JSON.stringify(payload.variants));
+    formData.append("variant_pricing", JSON.stringify(payload.variant_pricing));
+    formData.append("photos", JSON.stringify(payload.photos));
+    mediaSubmission.files.forEach((file) => {
+      formData.append("images[]", file);
+    });
+
+    setPayloadPreview(
+      JSON.stringify(
+        {
+          ...payload,
+          images: mediaSubmission.files.map((file) => file.name),
+        },
+        null,
+        2
+      )
+    );
+    const result = await submitProduct({ payload: formData, mode: "create" });
+    if (result.ok) {
       setSaveMessage("Produk berhasil disimpan.");
-    } catch {
-      setSaveMessage("Payload berhasil dibentuk, tetapi penyimpanan API gagal (cek autentikasi/admin API).");
-    } finally {
-      setIsSaving(false);
+      router.push("/admin/master-produk");
+      return;
     }
+
+    if ("validationErrors" in result) {
+      const firstError = Object.values(result.validationErrors)[0]?.[0];
+      setSaveMessage(firstError || "Validasi gagal. Periksa kembali data produk.");
+      return;
+    }
+
+    setSaveMessage(error ?? "Gagal menyimpan produk.");
   };
 
   return (
@@ -113,10 +151,10 @@ export default function CreateProductPage() {
             </Link>
             <button
               type="submit"
-              disabled={isSaving}
+              disabled={loading}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
+              {loading ? "Menyimpan..." : "Simpan Perubahan"}
             </button>
           </div>
         </div>

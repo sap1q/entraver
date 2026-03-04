@@ -10,9 +10,11 @@ import type {
 } from "@/types/product";
 import { createInitialProductForm, DEFAULT_MATRIX_ROW } from "@/lib/utils";
 import { useVariantCalculations } from "@/hooks/useVariantCalculations";
-
-const IMAGE_SLOT_COUNT = 5;
-const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
+import {
+  PRODUCT_MEDIA_MAX_FILE_SIZE_BYTES,
+  PRODUCT_MEDIA_MAX_PHOTOS,
+  isInvalidPhotoValue,
+} from "@/lib/product-media";
 
 const buildVariantCombinations = (variants: VariantDefinition[]): VariantCombination[] => {
   const normalized = variants
@@ -60,7 +62,7 @@ const syncMatrixWithVariants = (
 
 const createInitialState = (): ProductFormState => {
   const initial = createInitialProductForm();
-  const normalizedPhotos = Array.from({ length: IMAGE_SLOT_COUNT }, (_, index) => {
+  const normalizedPhotos = Array.from({ length: PRODUCT_MEDIA_MAX_PHOTOS }, (_, index) => {
     return initial.photos[index] ?? { file: null, preview: "" };
   });
   return {
@@ -68,6 +70,19 @@ const createInitialState = (): ProductFormState => {
     photos: normalizedPhotos,
     matrix: syncMatrixWithVariants(initial.variants, initial.matrix),
   };
+};
+
+const isValidPhotoPreview = (value: string): boolean => {
+  const normalized = value.trim();
+  return normalized.length > 0 && !isInvalidPhotoValue(normalized);
+};
+
+const normalizePhotoSlots = (slots: ProductFormState["photos"]): ProductFormState["photos"] => {
+  const compact = slots.filter((slot) => isValidPhotoPreview(slot.preview)).slice(0, PRODUCT_MEDIA_MAX_PHOTOS);
+  while (compact.length < PRODUCT_MEDIA_MAX_PHOTOS) {
+    compact.push({ file: null, preview: "" });
+  }
+  return compact;
 };
 
 const toSlug = (value: string): string =>
@@ -81,7 +96,7 @@ const toSlug = (value: string): string =>
 export function useProductForm() {
   const [form, setForm] = useState<ProductFormState>(createInitialState);
   const [imageErrors, setImageErrors] = useState<string[]>(
-    Array.from({ length: IMAGE_SLOT_COUNT }, () => "")
+    Array.from({ length: PRODUCT_MEDIA_MAX_PHOTOS }, () => "")
   );
 
   const variants = form.variants;
@@ -94,7 +109,7 @@ export function useProductForm() {
   const combinations = useMemo(() => buildVariantCombinations(variants), [variants]);
 
   useEffect(
-    () => () => photos.forEach((slot) => slot.preview && URL.revokeObjectURL(slot.preview)),
+    () => () => photos.forEach((slot) => slot.preview.startsWith("blob:") && URL.revokeObjectURL(slot.preview)),
     [photos]
   );
 
@@ -160,13 +175,15 @@ export function useProductForm() {
   }, [calculateVariant]);
 
   const handleImageChange = (slotIndex: number, file: File | null) => {
+    if (slotIndex < 0 || slotIndex >= PRODUCT_MEDIA_MAX_PHOTOS) return;
+
     if (!file) {
       setForm((prev) => {
         const nextSlots = [...prev.photos];
         const currentPreview = nextSlots[slotIndex]?.preview;
-        if (currentPreview) URL.revokeObjectURL(currentPreview);
+        if (currentPreview?.startsWith("blob:")) URL.revokeObjectURL(currentPreview);
         nextSlots[slotIndex] = { file: null, preview: "" };
-        return { ...prev, photos: nextSlots };
+        return { ...prev, photos: normalizePhotoSlots(nextSlots) };
       });
       setImageErrors((prev) => {
         const nextErrors = [...prev];
@@ -176,7 +193,7 @@ export function useProductForm() {
       return;
     }
 
-    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+    if (file.size > PRODUCT_MEDIA_MAX_FILE_SIZE_BYTES) {
       setImageErrors((prev) => {
         const nextErrors = [...prev];
         nextErrors[slotIndex] = "Maksimal ukuran file 2MB.";
@@ -188,28 +205,38 @@ export function useProductForm() {
     setForm((prev) => {
       const nextSlots = [...prev.photos];
       const currentPreview = nextSlots[slotIndex]?.preview;
-      if (currentPreview) URL.revokeObjectURL(currentPreview);
+      if (currentPreview?.startsWith("blob:")) URL.revokeObjectURL(currentPreview);
       nextSlots[slotIndex] = { file, preview: URL.createObjectURL(file) };
       return { ...prev, photos: nextSlots };
     });
     setImageErrors((prev) => {
-      const nextErrors = [...prev];
-      nextErrors[slotIndex] = "";
-      return nextErrors;
+      const next = [...prev];
+      next[slotIndex] = "";
+      return next;
     });
   };
 
   const handleRemoveImage = (slotIndex: number) => {
+    if (slotIndex < 0 || slotIndex >= PRODUCT_MEDIA_MAX_PHOTOS) return;
+
     setForm((prev) => {
       const nextSlots = [...prev.photos];
-      const currentPreview = nextSlots[slotIndex]?.preview;
-      if (currentPreview) URL.revokeObjectURL(currentPreview);
-      nextSlots[slotIndex] = { file: null, preview: "" };
+      const removedPreview = nextSlots[slotIndex]?.preview;
+      if (removedPreview?.startsWith("blob:")) URL.revokeObjectURL(removedPreview);
+
+      for (let index = slotIndex; index < PRODUCT_MEDIA_MAX_PHOTOS - 1; index += 1) {
+        nextSlots[index] = nextSlots[index + 1];
+      }
+      nextSlots[PRODUCT_MEDIA_MAX_PHOTOS - 1] = { file: null, preview: "" };
+
       return { ...prev, photos: nextSlots };
     });
     setImageErrors((prev) => {
       const nextErrors = [...prev];
-      nextErrors[slotIndex] = "";
+      for (let index = slotIndex; index < PRODUCT_MEDIA_MAX_PHOTOS - 1; index += 1) {
+        nextErrors[index] = nextErrors[index + 1];
+      }
+      nextErrors[PRODUCT_MEDIA_MAX_PHOTOS - 1] = "";
       return nextErrors;
     });
   };

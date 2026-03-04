@@ -8,6 +8,7 @@ import { useDebounce } from "@/src/hooks/useDebounce";
 import ProductTable, { type ProductTableProduct } from "@/components/features/products/ProductTable";
 
 type ApiVariantPricingRow = Record<string, unknown>;
+type ApiPhoto = string | { url?: string | null; is_primary?: boolean | null } | null;
 
 type ApiProduct = {
   id: string;
@@ -16,6 +17,7 @@ type ApiProduct = {
   spu?: string | null;
   status?: string | null;
   main_image?: string | null;
+  photos?: ApiPhoto[] | null;
   inventory?: {
     total_stock?: number;
   } | null;
@@ -25,6 +27,46 @@ type ApiProduct = {
 type FetchErrorState = {
   message: string;
   debug: string;
+};
+
+const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+const API_BASE_URL = RAW_API_URL.replace(/\/api\/?$/i, "");
+
+const normalizeImageUrl = (value: unknown): string => {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^(blob:|data:|https?:\/\/)/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("/")) return `${API_BASE_URL}${trimmed}`;
+  return `${API_BASE_URL}/storage/products/${trimmed}`;
+};
+
+const resolvePrimaryPhoto = (product: ApiProduct): string => {
+  const main = normalizeImageUrl(product.main_image);
+  if (main) return main;
+
+  const photos = Array.isArray(product.photos) ? product.photos : [];
+  const normalizedPhotos = photos
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return { url: normalizeImageUrl(entry), isPrimary: false };
+      }
+
+      if (entry && typeof entry === "object") {
+        return {
+          url: normalizeImageUrl(entry.url),
+          isPrimary: entry.is_primary === true,
+        };
+      }
+
+      return { url: "", isPrimary: false };
+    })
+    .filter((entry) => entry.url.length > 0);
+
+  const explicitPrimary = normalizedPhotos.find((entry) => entry.isPrimary);
+  if (explicitPrimary) return explicitPrimary.url;
+
+  return normalizedPhotos[0]?.url ?? "/product-placeholder.svg";
 };
 
 const isRequestCanceled = (error: unknown): boolean => {
@@ -76,7 +118,7 @@ const mapApiProduct = (product: ApiProduct): ProductTableProduct => {
     inventory: {
       total_stock: product.inventory?.total_stock ?? normalizedVariants.reduce((sum, item) => sum + item.stock, 0),
     },
-    photo: product.main_image ?? "/product-placeholder.svg",
+    photo: resolvePrimaryPhoto(product),
     status: normalizeStatus(product.status),
     platforms: ["web", "tiktok"],
     variant_pricing: normalizedVariants,

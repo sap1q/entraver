@@ -10,6 +10,18 @@ export function cn(...classes: Array<string | false | null | undefined>): string
   return classes.filter(Boolean).join(" ");
 }
 
+export const stripHtml = (value: string): string => {
+  if (!value) return "";
+
+  if (typeof window !== "undefined" && typeof document !== "undefined") {
+    const parser = document.createElement("div");
+    parser.innerHTML = value;
+    return (parser.textContent || parser.innerText || "").trim();
+  }
+
+  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+};
+
 export const INPUT_BASE_CLASS =
   "w-full rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white";
 
@@ -33,10 +45,10 @@ export const DEFAULT_MATRIX_ROW: MatrixPricing = {
   skuSeller: "",
   itemWeight: 0,
   avgSalesA: 0,
-  stockoutDateA: "-",
+  stockoutDateA: "",
   stockoutFactorA: "-",
   avgSalesB: 0,
-  stockoutDateB: "-",
+  stockoutDateB: "",
   stockoutFactorB: "-",
   avgDailyFinal: 0,
   startDate: "",

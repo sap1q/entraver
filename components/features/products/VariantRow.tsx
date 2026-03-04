@@ -13,6 +13,14 @@ type VariantRowProps = {
 const inputBase =
   "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300";
 
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+const toDateInputValue = (value: string): string => {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed || trimmed === "-") return "";
+  return DATE_REGEX.test(trimmed) ? trimmed : "";
+};
+
 const StatusBadge = ({ status }: { status: MatrixPricing["procurementStatus"] }) => {
   const styles: Record<MatrixPricing["procurementStatus"], string> = {
     Normal: "bg-green-100 text-green-800",
@@ -24,6 +32,21 @@ const StatusBadge = ({ status }: { status: MatrixPricing["procurementStatus"] })
 };
 
 export default function VariantRow({ combo, row, onUpdateField, selected, onSelect }: VariantRowProps) {
+  const stockoutDateA = toDateInputValue(row.stockoutDateA);
+  const stockoutDateB = toDateInputValue(row.stockoutDateB);
+  const startDate = toDateInputValue(row.startDate);
+
+  const handleDateChange = (field: keyof MatrixPricing, value: string) => {
+    if (!value) {
+      onUpdateField(combo.key, field, "");
+      return;
+    }
+
+    if (DATE_REGEX.test(value)) {
+      onUpdateField(combo.key, field, value);
+    }
+  };
+
   return (
     <tr onClick={onSelect} className={`border-t border-slate-100 align-top ${selected ? "bg-blue-50/40" : ""}`}>
       <td className="sticky left-0 z-10 min-w-[240px] bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-[4px_0_8px_rgba(0,0,0,0.04)]">
@@ -66,13 +89,13 @@ export default function VariantRow({ combo, row, onUpdateField, selected, onSele
       <td className="min-w-[150px] px-2 py-2"><input className={inputBase} value={row.skuSeller} onChange={(e) => onUpdateField(combo.key, "skuSeller", e.target.value)} /></td>
       <td className="min-w-[130px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.itemWeight} onChange={(e) => onUpdateField(combo.key, "itemWeight", Number(e.target.value))} /></td>
       <td className="min-w-[220px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.avgSalesA} onChange={(e) => onUpdateField(combo.key, "avgSalesA", Number(e.target.value))} /></td>
-      <td className="min-w-[220px] px-2 py-2"><input type="date" className={inputBase} value={row.stockoutDateA} onChange={(e) => onUpdateField(combo.key, "stockoutDateA", e.target.value)} /></td>
+      <td className="min-w-[220px] px-2 py-2"><input type="date" className={inputBase} value={stockoutDateA} onChange={(e) => handleDateChange("stockoutDateA", e.target.value)} /></td>
       <td className="min-w-[220px] px-2 py-2"><input className={inputBase} value={row.stockoutFactorA} onChange={(e) => onUpdateField(combo.key, "stockoutFactorA", e.target.value)} /></td>
       <td className="min-w-[220px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.avgSalesB} onChange={(e) => onUpdateField(combo.key, "avgSalesB", Number(e.target.value))} /></td>
-      <td className="min-w-[220px] px-2 py-2"><input type="date" className={inputBase} value={row.stockoutDateB} onChange={(e) => onUpdateField(combo.key, "stockoutDateB", e.target.value)} /></td>
+      <td className="min-w-[220px] px-2 py-2"><input type="date" className={inputBase} value={stockoutDateB} onChange={(e) => handleDateChange("stockoutDateB", e.target.value)} /></td>
       <td className="min-w-[220px] px-2 py-2"><input className={inputBase} value={row.stockoutFactorB} onChange={(e) => onUpdateField(combo.key, "stockoutFactorB", e.target.value)} /></td>
       <td className="min-w-[230px] px-2 py-2"><input readOnly className={`${inputBase} bg-blue-50 text-blue-700`} value={row.avgDailyFinal} /></td>
-      <td className="min-w-[130px] px-2 py-2"><input type="date" className={inputBase} value={row.startDate} onChange={(e) => onUpdateField(combo.key, "startDate", e.target.value)} /></td>
+      <td className="min-w-[130px] px-2 py-2"><input type="date" className={inputBase} value={startDate} onChange={(e) => handleDateChange("startDate", e.target.value)} /></td>
       <td className="min-w-[170px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.predictedInitialStock} onChange={(e) => onUpdateField(combo.key, "predictedInitialStock", Number(e.target.value))} /></td>
       <td className="min-w-[150px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.leadTime} onChange={(e) => onUpdateField(combo.key, "leadTime", Number(e.target.value))} /></td>
       <td className="min-w-[140px] px-2 py-2"><input readOnly className={`${inputBase} bg-blue-50 text-blue-700`} value={row.reorderPoint} /></td>
