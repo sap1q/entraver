@@ -12,6 +12,18 @@ interface ProductTableProps {
   search: string;
   onSearchChange: (value: string) => void;
   onRefresh: () => void | Promise<void>;
+  statusSummary?: {
+    active?: number;
+    pending?: number;
+    inactive?: number;
+  };
+  pagination?: {
+    currentPage: number;
+    lastPage: number;
+    perPage: number;
+    total: number;
+    onPageChange: (page: number) => void;
+  };
 }
 
 export type ProductTableProduct = ProductTableRowProduct;
@@ -25,6 +37,8 @@ export default function ProductTable({
   search,
   onSearchChange,
   onRefresh,
+  statusSummary,
+  pagination,
 }: ProductTableProps) {
   const [activeStatus, setActiveStatus] = useState<ProductStatus>("active");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -42,11 +56,11 @@ export default function ProductTable({
 
   const statusCounts = useMemo(
     () => ({
-      active: products.filter((product) => product.status === "active").length,
-      pending: products.filter((product) => product.status === "pending").length,
-      inactive: products.filter((product) => product.status === "inactive").length,
+      active: statusSummary?.active ?? products.filter((product) => product.status === "active").length,
+      pending: statusSummary?.pending ?? products.filter((product) => product.status === "pending").length,
+      inactive: statusSummary?.inactive ?? products.filter((product) => product.status === "inactive").length,
     }),
-    [products]
+    [products, statusSummary]
   );
 
   return (
@@ -136,6 +150,12 @@ export default function ProductTable({
 
         <div className="mt-5 overflow-x-auto">
           <table className="min-w-full border-separate border-spacing-0">
+            <colgroup>
+              <col className="w-[88px]" />
+              <col />
+              <col className="w-[210px]" />
+              <col className="w-[190px]" />
+            </colgroup>
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="border-b border-gray-100 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -144,10 +164,10 @@ export default function ProductTable({
                 <th className="border-b border-gray-100 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Nama Produk
                 </th>
-                <th className="border-b border-gray-100 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <th className="border-b border-gray-100 px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Status
                 </th>
-                <th className="border-b border-gray-100 px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <th className="border-b border-gray-100 px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Actions
                 </th>
               </tr>
@@ -186,6 +206,7 @@ export default function ProductTable({
                       product={product}
                       onEdit={handleEdit}
                       onDelete={(id, name) => setDeleteTarget({ id, name })}
+                      onJurnalSyncComplete={onRefresh}
                       isExpanded={expandedId === product.id}
                       onToggleExpand={(id) => setExpandedId((prev) => (prev === id ? null : id))}
                       isActionOpen={openActionId === product.id}
@@ -199,6 +220,35 @@ export default function ProductTable({
             </tbody>
           </table>
         </div>
+
+        {pagination ? (
+          <div className="mt-4 flex flex-col gap-2 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              Menampilkan {products.length} dari {pagination.total} produk. {pagination.perPage} produk per halaman.
+            </p>
+            <div className="inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => pagination.onPageChange(Math.max(1, pagination.currentPage - 1))}
+                disabled={isLoading || pagination.currentPage <= 1}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Sebelumnya
+              </button>
+              <span className="text-xs font-medium text-slate-500">
+                Halaman {pagination.currentPage} dari {pagination.lastPage}
+              </span>
+              <button
+                type="button"
+                onClick={() => pagination.onPageChange(Math.min(pagination.lastPage, pagination.currentPage + 1))}
+                disabled={isLoading || pagination.currentPage >= pagination.lastPage}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Selanjutnya
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <DeleteConfirmationModal

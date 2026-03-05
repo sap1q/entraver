@@ -1,20 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ChevronsUpDown,
   ChevronDown,
   ChevronUp,
   Link2,
   Link2Off,
+  Loader2,
   Pencil,
   Search,
   Store,
 } from "lucide-react";
 import api, { isAxiosError } from "@/lib/axios";
+import { useDebounce } from "@/src/hooks/useDebounce";
 
 type MarketplaceTab = "tiktok" | "shopee";
-type SyncStatus = "ACTIVATE" | "FAILED";
+type SyncStatus = "ACTIVATE" | "FAILED" | "PENDING";
 
 type ApiVariantPricingRow = Record<string, unknown>;
 type ApiPhoto = string | { url?: string | null; is_primary?: boolean | null } | null;
@@ -25,6 +28,13 @@ type ApiProduct = {
   category?: string | null;
   spu?: string | null;
   status?: string | null;
+  jurnal_id?: string | null;
+  mekari_status?: {
+    sync_status?: string | null;
+    last_sync?: string | null;
+    mekari_id?: string | null;
+    last_error?: string | null;
+  } | null;
   main_image?: string | null;
   photos?: ApiPhoto[] | null;
   inventory?: {
@@ -50,11 +60,20 @@ type SpuRow = {
   category: string;
   totalStock: number;
   status: SyncStatus;
+  statusDetail: string | null;
   variants: VariantRow[];
+};
+
+type PaginationMeta = {
+  currentPage: number;
+  lastPage: number;
+  perPage: number;
+  total: number;
 };
 
 const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
 const API_BASE_URL = RAW_API_URL.replace(/\/api\/?$/i, "");
+const MARKETPLACE_PAGE_SIZE = 25;
 
 const currencyFormatter = new Intl.NumberFormat("id-ID");
 const formatIdr = (value: number): string => `Rp ${currencyFormatter.format(Math.max(0, value))}`;
@@ -130,6 +149,40 @@ const extractProducts = (payload: unknown): ApiProduct[] => {
   return [];
 };
 
+const extractPaginationMeta = (payload: unknown): PaginationMeta => {
+  const fallback: PaginationMeta = {
+    currentPage: 1,
+    lastPage: 1,
+    perPage: MARKETPLACE_PAGE_SIZE,
+    total: 0,
+  };
+
+  if (!payload || typeof payload !== "object") {
+    return fallback;
+  }
+
+  const source = payload as {
+    meta?: {
+      current_page?: number;
+      last_page?: number;
+      per_page?: number;
+      total?: number;
+    };
+  };
+
+  const meta = source.meta;
+  if (!meta) {
+    return fallback;
+  }
+
+  return {
+    currentPage: Number(meta.current_page ?? 1),
+    lastPage: Number(meta.last_page ?? 1),
+    perPage: Number(meta.per_page ?? MARKETPLACE_PAGE_SIZE),
+    total: Number(meta.total ?? 0),
+  };
+};
+
 const mapProductToSpuRow = (product: ApiProduct): SpuRow => {
   const variantRows = Array.isArray(product.variant_pricing) ? product.variant_pricing : [];
   const variants: VariantRow[] = variantRows.map((row, index) => {
@@ -149,8 +202,25 @@ const mapProductToSpuRow = (product: ApiProduct): SpuRow => {
 
   const totalStockFromVariants = variants.reduce((sum, variant) => sum + variant.stock, 0);
   const totalStock = product.inventory?.total_stock ?? totalStockFromVariants;
-  const rawStatus = String(product.status ?? "").toLowerCase();
-  const syncStatus: SyncStatus = rawStatus === "inactive" || totalStock <= 0 ? "FAILED" : "ACTIVATE";
+  const syncState = String(product.mekari_status?.sync_status ?? "").toLowerCase();
+
+  const successfulSyncStates = new Set([
+    "activate",
+    "success",
+    "synced",
+    "imported_from_jurnal",
+    "created",
+    "updated",
+    "active",
+  ]);
+  const failedSyncStates = new Set(["failed", "error"]);
+
+  let syncStatus: SyncStatus = "PENDING";
+  if (failedSyncStates.has(syncState)) {
+    syncStatus = "FAILED";
+  } else if (successfulSyncStates.has(syncState)) {
+    syncStatus = "ACTIVATE";
+  }
 
   return {
     id: product.id,
@@ -161,6 +231,7 @@ const mapProductToSpuRow = (product: ApiProduct): SpuRow => {
     category: product.category ?? "-",
     totalStock,
     status: syncStatus,
+    statusDetail: syncStatus === "FAILED" ? String(product.mekari_status?.last_error ?? "").trim() || null : null,
     variants,
   };
 };
@@ -168,6 +239,7 @@ const mapProductToSpuRow = (product: ApiProduct): SpuRow => {
 const statusClassMap: Record<SyncStatus, string> = {
   ACTIVATE: "border-emerald-200 bg-emerald-50 text-emerald-700",
   FAILED: "border-amber-200 bg-amber-50 text-amber-700",
+  PENDING: "border-blue-200 bg-blue-50 text-blue-700",
 };
 
 export default function MarketplaceProdukPage() {
@@ -179,6 +251,14 @@ export default function MarketplaceProdukPage() {
   const [selectedBrand, setSelectedBrand] = useState("all");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [connectedVariants, setConnectedVariants] = useState<Record<string, boolean>>({});
+  const [reloadTick, setReloadTick] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [lastPage, setLastPage] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [perPage, setPerPage] = useState(MARKETPLACE_PAGE_SIZE);
+  const [importingJurnal, setImportingJurnal] = useState(false);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const debouncedSearch = useDebounce(search, 500);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -190,12 +270,23 @@ export default function MarketplaceProdukPage() {
 
       try {
         const response = await api.get(resolveProductsEndpoint(), {
-          params: { per_page: 100 },
+          params: {
+            per_page: MARKETPLACE_PAGE_SIZE,
+            page: currentPage,
+            search: debouncedSearch || undefined,
+            brand: selectedBrand !== "all" ? selectedBrand : undefined,
+            exclude_failed_sync: false,
+          },
           signal: controller.signal,
         });
         const items = extractProducts(response.data).map(mapProductToSpuRow);
+        const meta = extractPaginationMeta(response.data);
         if (!mounted) return;
         setProducts(items);
+        setCurrentPage(Math.max(1, meta.currentPage));
+        setLastPage(Math.max(1, meta.lastPage));
+        setPerPage(Math.max(1, meta.perPage));
+        setTotalProducts(Math.max(0, meta.total));
       } catch (err) {
         if (!mounted) return;
         if (isAxiosError(err) && err.code === "ERR_CANCELED") return;
@@ -214,39 +305,60 @@ export default function MarketplaceProdukPage() {
       mounted = false;
       controller.abort();
     };
+  }, [currentPage, debouncedSearch, selectedBrand, reloadTick]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, selectedBrand]);
+
+  const refreshProducts = useCallback(() => {
+    setReloadTick((prev) => prev + 1);
   }, []);
+
+  const handleImportFromJurnal = useCallback(async () => {
+    setImportingJurnal(true);
+    setImportMessage(null);
+
+    try {
+      const response = await api.post("/v1/integrations/jurnal/products/import", {
+        page: 1,
+        per_page: 50,
+        max_pages: 3,
+        include_archive: true,
+      });
+
+      const result = response.data?.data as
+        | {
+            created?: number;
+            updated?: number;
+            failed_count?: number;
+            imported_count?: number;
+          }
+        | undefined;
+
+      setImportMessage(
+        `Import Jurnal selesai. Imported: ${result?.imported_count ?? 0}, Created: ${result?.created ?? 0}, Updated: ${result?.updated ?? 0}, Failed: ${result?.failed_count ?? 0}.`
+      );
+      refreshProducts();
+    } catch (error) {
+      if (isAxiosError(error)) {
+        setImportMessage(error.response?.data?.message ?? "Gagal menarik produk dari Jurnal.");
+      } else {
+        setImportMessage("Gagal menarik produk dari Jurnal.");
+      }
+    } finally {
+      setImportingJurnal(false);
+    }
+  }, [refreshProducts]);
 
   const brandOptions = useMemo(() => {
     const values = Array.from(new Set(products.map((item) => item.brand).filter((value) => value && value !== "-")));
     return values.sort((a, b) => a.localeCompare(b));
   }, [products]);
 
-  const filteredProducts = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-
-    return products.filter((product) => {
-      if (selectedBrand !== "all" && product.brand !== selectedBrand) return false;
-
-      if (!keyword) return true;
-
-      const matchesVariant = product.variants.some(
-        (variant) =>
-          variant.name.toLowerCase().includes(keyword) ||
-          variant.sellerSku.toLowerCase().includes(keyword)
-      );
-
-      return (
-        product.name.toLowerCase().includes(keyword) ||
-        product.spu.toLowerCase().includes(keyword) ||
-        product.brand.toLowerCase().includes(keyword) ||
-        matchesVariant
-      );
-    });
-  }, [products, search, selectedBrand]);
-
   const totalVariants = useMemo(
-    () => filteredProducts.reduce((sum, item) => sum + item.variants.length, 0),
-    [filteredProducts]
+    () => products.reduce((sum, item) => sum + item.variants.length, 0),
+    [products]
   );
 
   const buildConnectionKey = (variantId: string) => `${marketplaceTab}:${variantId}`;
@@ -277,6 +389,16 @@ export default function MarketplaceProdukPage() {
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={handleImportFromJurnal}
+            disabled={importingJurnal}
+            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {importingJurnal ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronsUpDown className="h-4 w-4" />}
+            {importingJurnal ? "Menarik dari Jurnal..." : "Tarik dari Jurnal"}
+          </button>
+
+          <button
+            type="button"
             onClick={() => setMarketplaceTab("tiktok")}
             className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${
               marketplaceTab === "tiktok"
@@ -300,6 +422,8 @@ export default function MarketplaceProdukPage() {
             Shopee
           </button>
         </div>
+
+        {importMessage ? <p className="mt-3 text-xs text-slate-600">{importMessage}</p> : null}
       </section>
 
       <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -307,7 +431,7 @@ export default function MarketplaceProdukPage() {
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl font-semibold text-slate-800">Daftar Produk Marketplace</h2>
             <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-              {filteredProducts.length} produk ({totalVariants} varian)
+              {totalProducts} produk ({totalVariants} varian di halaman ini)
             </span>
           </div>
 
@@ -343,17 +467,13 @@ export default function MarketplaceProdukPage() {
           <table className="min-w-full border-separate border-spacing-0">
             <thead>
               <tr>
-                <th className="border-b border-gray-100 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Produk
-                </th>
-                <th className="border-b border-gray-100 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Total Stok
-                </th>
-                <th className="border-b border-gray-100 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Sync Status
-                </th>
-                <th className="border-b border-gray-100 px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Expand
+                <th colSpan={4} className="border-b border-gray-100 px-3 py-3">
+                  <div className="grid grid-cols-[minmax(0,1fr)_140px_150px_100px] items-center gap-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <span className="text-left">Produk</span>
+                    <span className="text-center">Total Stok</span>
+                    <span className="text-center">Sync Status</span>
+                    <span className="text-right">Expand</span>
+                  </div>
                 </th>
               </tr>
             </thead>
@@ -375,14 +495,14 @@ export default function MarketplaceProdukPage() {
                     </td>
                   </tr>
                 ))
-              ) : filteredProducts.length === 0 ? (
+              ) : products.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-3 py-10 text-center text-sm text-slate-500">
                     Tidak ada produk marketplace yang cocok dengan filter saat ini.
                   </td>
                 </tr>
               ) : (
-                filteredProducts.map((product) => {
+                products.map((product) => {
                   const isExpanded = expanded[product.id] === true;
                   return (
                     <tr key={product.id}>
@@ -413,14 +533,20 @@ export default function MarketplaceProdukPage() {
                               </div>
                             </div>
 
-                            <div className="text-sm font-semibold text-slate-700">{product.totalStock}</div>
+                            <div className="text-center text-sm font-semibold text-slate-700">{product.totalStock}</div>
 
-                            <div>
+                            <div className="flex flex-col items-center">
                               <span
+                                title={product.statusDetail ?? undefined}
                                 className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusClassMap[product.status]}`}
                               >
                                 {product.status}
                               </span>
+                              {product.status === "FAILED" && product.statusDetail ? (
+                                <p className="mt-1 max-w-[220px] truncate text-center text-[11px] text-amber-700" title={product.statusDetail}>
+                                  {product.statusDetail}
+                                </p>
+                              ) : null}
                             </div>
 
                             <div className="text-right">
@@ -532,6 +658,33 @@ export default function MarketplaceProdukPage() {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            Menampilkan {products.length} dari {totalProducts} produk. {perPage} produk per halaman.
+          </p>
+          <div className="inline-flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={loading || currentPage <= 1}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Sebelumnya
+            </button>
+            <span className="text-xs font-medium text-slate-500">
+              Halaman {currentPage} dari {lastPage}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.min(lastPage, prev + 1))}
+              disabled={loading || currentPage >= lastPage}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Selanjutnya
+            </button>
+          </div>
         </div>
 
         {error ? (

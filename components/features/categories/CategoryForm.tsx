@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Info, Loader2, Trash2, Upload } from "lucide-react";
+import { Info, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import FeeComponents from "@/components/features/categories/FeeComponents";
@@ -37,6 +37,78 @@ const resolveIconUrl = (value?: string | null): string | null => {
 
   return `${API_BASE_URL}/${trimmed.replace(/^\/+/, "")}`;
 };
+
+type WarrantyProgramComponent = {
+  id: string;
+  label: string;
+  valueType: "percent" | "amount";
+  value: number | string;
+  notes?: string;
+};
+
+const parseWarrantyComponents = (value: string): WarrantyProgramComponent[] => {
+  const fallback = (): WarrantyProgramComponent[] => {
+    if (!value.trim()) return [];
+      return value
+      .split(/\r?\n|,/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((label) => ({ id: crypto.randomUUID(), label, valueType: "percent" as const, value: 0 }));
+  };
+
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((item) =>
+          typeof item === "string"
+            ? { id: crypto.randomUUID(), label: item, valueType: "percent" as const, value: 0 }
+            : item
+        )
+        .map((item) => ({
+          id: String((item as { id?: string }).id ?? crypto.randomUUID()),
+          label: String((item as { label?: string; name?: string }).label ?? (item as { name?: string }).name ?? ""),
+          valueType: (item as { valueType?: "percent" | "amount" }).valueType === "amount" ? "amount" : "percent",
+          value: String((item as { value?: number | string }).value ?? "0"),
+          notes: String((item as { notes?: string }).notes ?? "") || undefined,
+        }));
+    }
+
+    if (parsed && typeof parsed === "object") {
+      const obj = parsed as { components?: unknown };
+      if (Array.isArray(obj.components)) {
+        return obj.components
+          .map((item) =>
+            typeof item === "string"
+              ? { id: crypto.randomUUID(), label: item, valueType: "percent" as const, value: 0 }
+              : item
+          )
+          .map((item) => ({
+            id: String((item as { id?: string }).id ?? crypto.randomUUID()),
+            label: String((item as { label?: string; name?: string }).label ?? (item as { name?: string }).name ?? ""),
+            valueType: (item as { valueType?: "percent" | "amount" }).valueType === "amount" ? "amount" : "percent",
+            value: String((item as { value?: number | string }).value ?? "0"),
+            notes: String((item as { notes?: string }).notes ?? "") || undefined,
+          }));
+      }
+    }
+
+    return fallback();
+  } catch {
+    return fallback();
+  }
+};
+
+const serializeWarrantyComponents = (components: WarrantyProgramComponent[]): string =>
+  JSON.stringify({
+    components: components.map((item) => ({
+      id: item.id,
+      label: item.label,
+      valueType: item.valueType === "amount" ? "amount" : "percent",
+      value: Number(item.value) || 0,
+      notes: item.notes || null,
+    })),
+  });
 
 type CategoryFormProps = {
   mode: "create" | "edit";
@@ -78,6 +150,11 @@ export default function CategoryForm({
     ? `data:image/svg+xml;utf8,${encodeURIComponent(values.iconSvg)}`
     : resolveIconUrl(category?.icon_url ?? category?.icon ?? null);
 
+  const warrantyComponents = useMemo(
+    () => parseWarrantyComponents(values.program_garansi),
+    [values.program_garansi]
+  );
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const result = await submit();
@@ -104,6 +181,17 @@ export default function CategoryForm({
     setField("iconFile", null);
     setField("iconSvg", "");
     setField("removeIcon", true);
+  };
+
+  const updateWarrantyComponents = (next: WarrantyProgramComponent[]) => {
+    setField("program_garansi", serializeWarrantyComponents(next));
+  };
+
+  const addWarrantyComponent = () => {
+    updateWarrantyComponents([
+      ...warrantyComponents,
+      { id: crypto.randomUUID(), label: "", valueType: "percent", value: 0, notes: "" },
+    ]);
   };
 
   return (
@@ -142,15 +230,112 @@ export default function CategoryForm({
         </div>
 
         <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <label className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Program Garansi</span>
-            <textarea
-              value={values.program_garansi}
-              onChange={(event) => setField("program_garansi", event.target.value)}
-              className="min-h-24 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300"
-              placeholder="Opsional"
-            />
-          </label>
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Komponen Program Garansi</span>
+              <button
+                type="button"
+                onClick={addWarrantyComponent}
+                className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Komponen
+              </button>
+            </div>
+
+            {warrantyComponents.length > 0 ? (
+              <div className="space-y-2">
+                {warrantyComponents.map((component, index) => (
+                  <div key={component.id} className="grid gap-2 md:grid-cols-12">
+                    <input
+                      value={component.label}
+                      onChange={(event) => {
+                        const next = [...warrantyComponents];
+                        next[index] = { ...next[index], label: event.target.value };
+                        updateWarrantyComponents(next);
+                      }}
+                      className="md:col-span-5 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                      placeholder="Contoh: Toko - 1 Tahun / Distributor"
+                    />
+                    <select
+                      value={component.valueType}
+                      onChange={(event) => {
+                        const next = [...warrantyComponents];
+                        next[index] = {
+                          ...next[index],
+                          valueType: event.target.value === "amount" ? "amount" : "percent",
+                        };
+                        updateWarrantyComponents(next);
+                      }}
+                      className="md:col-span-2 h-10 rounded-lg border border-slate-200 bg-white px-2 text-sm"
+                      title="Jenis biaya garansi"
+                    >
+                      <option value="percent">%</option>
+                      <option value="amount">Rp</option>
+                    </select>
+                    <input
+                      type="number"
+                      min={0}
+                      value={Number(component.value) || 0}
+                      onChange={(event) => {
+                        const next = [...warrantyComponents];
+                        next[index] = { ...next[index], value: Number(event.target.value) || 0 };
+                        updateWarrantyComponents(next);
+                      }}
+                      className="md:col-span-2 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                      placeholder="Nilai"
+                    />
+                    <input
+                      value={component.notes ?? ""}
+                      onChange={(event) => {
+                        const next = [...warrantyComponents];
+                        next[index] = { ...next[index], notes: event.target.value };
+                        updateWarrantyComponents(next);
+                      }}
+                      className="md:col-span-2 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                      placeholder="Catatan opsional"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = warrantyComponents.filter((_, rowIndex) => rowIndex !== index);
+                        updateWarrantyComponents(next);
+                      }}
+                      className="md:col-span-1 inline-flex h-10 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
+                      title="Hapus komponen"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs text-slate-500">
+                Belum ada komponen. Tambahkan contoh: <span className="font-semibold">Toko - 1 Tahun</span>.
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-1.5">
+              {warrantyComponents.map((component) => (
+                <span
+                  key={`chip-${component.id}`}
+                  className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700"
+                >
+                  {(component.label || "Komponen baru") + " - " + (component.valueType === "amount" ? "Rp" : "%") + " " + (Number(component.value) || 0)}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = warrantyComponents.filter((item) => item.id !== component.id);
+                      updateWarrantyComponents(next);
+                    }}
+                    className="rounded-full p-0.5 hover:bg-blue-100"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
 
           <div className="space-y-2">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-600">IKON KATEGORI (PNG/SVG)</p>

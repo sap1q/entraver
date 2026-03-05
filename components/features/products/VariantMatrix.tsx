@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { DollarSign, Package, TrendingUp } from "lucide-react";
 import type { MatrixPricing, VariantCombination } from "@/types/product";
+import type { CategoryFees } from "@/types/category.types";
 import { DEFAULT_MATRIX_ROW } from "@/lib/utils";
 import VariantTable from "@/components/features/products/VariantTable";
 import { useVariantCalculations } from "@/hooks/useVariantCalculations";
@@ -11,13 +12,31 @@ type VariantMatrixProps = {
   combinations: VariantCombination[];
   matrixData: Record<string, MatrixPricing>;
   updateField: (key: string, field: keyof MatrixPricing, value: number | string) => void;
+  inventoryVolumeCbm?: number;
+  categoryPricing?: {
+    minMarginPercent: number;
+    fees: CategoryFees | null;
+    currencySurcharge?: number;
+    warrantyComponents?: Array<{
+      label: string;
+      valueType: "percent" | "amount";
+      value: number;
+      notes?: string;
+    }>;
+  };
 };
 
 const currency = new Intl.NumberFormat("id-ID");
 
 const formatMoney = (value: number) => `Rp ${currency.format(Number.isFinite(value) ? value : 0)}`;
 
-export default function VariantMatrix({ combinations, matrixData, updateField }: VariantMatrixProps) {
+export default function VariantMatrix({
+  combinations,
+  matrixData,
+  updateField,
+  inventoryVolumeCbm = 0,
+  categoryPricing,
+}: VariantMatrixProps) {
   const { calculateVariant } = useVariantCalculations();
 
   const summary = useMemo(() => {
@@ -72,8 +91,13 @@ export default function VariantMatrix({ combinations, matrixData, updateField }:
         </div>
       </div>
 
-      <VariantTable combinations={combinations} matrixData={matrixData} onUpdateField={updateField} />
+      <VariantTable
+        combinations={combinations}
+        matrixData={matrixData}
+        onUpdateField={updateField}
+        inventoryVolumeCbm={inventoryVolumeCbm}
+        categoryPricing={categoryPricing}
+      />
     </section>
   );
 }
-

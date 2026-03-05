@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, Globe, ShoppingBag } from "lucide-react";
+import JurnalSyncButton from "@/components/features/integrations/JurnalSyncButton";
 import ProductActions from "@/components/features/products/ProductActions";
 
 export type ProductStatus = "active" | "pending" | "inactive";
@@ -21,6 +22,8 @@ export interface ProductTableRowProduct {
   name: string;
   spu: string;
   brand?: string | null;
+  jurnal_id?: string | null;
+  jurnal_archived?: boolean;
   inventory?: {
     total_stock?: number;
   };
@@ -38,6 +41,7 @@ interface ProductTableRowProps {
   onToggleExpand: (id: string) => void;
   isActionOpen: boolean;
   onActionOpenChange: (open: boolean) => void;
+  onJurnalSyncComplete: () => void | Promise<void>;
 }
 
 const statusStyle: Record<ProductStatus, string> = {
@@ -85,6 +89,7 @@ export default function ProductTableRow({
   onToggleExpand,
   isActionOpen,
   onActionOpenChange,
+  onJurnalSyncComplete,
 }: ProductTableRowProps) {
   return (
     <>
@@ -126,8 +131,8 @@ export default function ProductTableRow({
           <p className="mt-1 text-xs text-slate-500">Total Stok: {product.inventory?.total_stock ?? 0}</p>
         </td>
 
-        <td className="border-b border-gray-100 px-3 py-4 align-top">
-          <div className="flex flex-wrap items-center gap-2">
+        <td className="border-b border-gray-100 px-3 py-4 align-middle">
+          <div className="flex items-center justify-center gap-2">
             <span
               className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusStyle[product.status]}`}
             >
@@ -146,8 +151,8 @@ export default function ProductTableRow({
           </div>
         </td>
 
-        <td className="border-b border-gray-100 px-3 py-4 text-right align-top">
-          <div onClick={(event) => event.stopPropagation()}>
+        <td className="border-b border-gray-100 px-3 py-4 align-middle">
+          <div onClick={(event) => event.stopPropagation()} className="flex items-center justify-center gap-2">
             <ProductActions
               productId={product.id}
               productName={product.name}
@@ -155,6 +160,12 @@ export default function ProductTableRow({
               onDelete={(id) => onDelete(id, product.name)}
               isOpen={isActionOpen}
               onOpenChange={onActionOpenChange}
+            />
+            <JurnalSyncButton
+              productId={product.id}
+              initialArchived={Boolean(product.jurnal_archived)}
+              onSyncComplete={onJurnalSyncComplete}
+              onArchiveChange={() => onJurnalSyncComplete()}
             />
           </div>
         </td>

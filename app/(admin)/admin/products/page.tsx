@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ChevronsUpDown, Plus } from "lucide-react";
+import { ChevronsUpDown, Loader2, Plus } from "lucide-react";
 import api, { isAxiosError } from "@/lib/axios";
 import { useDebounce } from "@/src/hooks/useDebounce";
 import ProductTable, { type ProductTableProduct } from "@/components/features/products/ProductTable";
@@ -16,6 +16,8 @@ type ApiProduct = {
   brand?: string | null;
   spu?: string | null;
   status?: string | null;
+  jurnal_id?: string | null;
+  jurnal_metadata?: unknown;
   main_image?: string | null;
   photos?: ApiPhoto[] | null;
   inventory?: {
@@ -28,6 +30,15 @@ type FetchErrorState = {
   message: string;
   debug: string;
 };
+
+type PaginationMeta = {
+  currentPage: number;
+  lastPage: number;
+  perPage: number;
+  total: number;
+};
+
+const MASTER_PRODUCT_PAGE_SIZE = 25;
 
 const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
 const API_BASE_URL = RAW_API_URL.replace(/\/api\/?$/i, "");
@@ -92,6 +103,37 @@ const normalizeStatus = (status: string | null | undefined): ProductTableProduct
   return "active";
 };
 
+const resolveJurnalArchived = (metadata: unknown): boolean => {
+  if (!metadata || typeof metadata !== "object") return false;
+
+  const source = metadata as Record<string, unknown>;
+  const directProduct = source.product;
+  if (directProduct && typeof directProduct === "object") {
+    const value = (directProduct as Record<string, unknown>).archive;
+    if (typeof value === "boolean") return value;
+  }
+
+  const nestedData = source.data;
+  if (nestedData && typeof nestedData === "object") {
+    const nestedProduct = (nestedData as Record<string, unknown>).product;
+    if (nestedProduct && typeof nestedProduct === "object") {
+      const value = (nestedProduct as Record<string, unknown>).archive;
+      if (typeof value === "boolean") return value;
+    }
+  }
+
+  const productList = source.products;
+  if (Array.isArray(productList) && productList.length > 0) {
+    const first = productList[0];
+    if (first && typeof first === "object") {
+      const value = (first as Record<string, unknown>).archive;
+      if (typeof value === "boolean") return value;
+    }
+  }
+
+  return false;
+};
+
 const mapApiProduct = (product: ApiProduct): ProductTableProduct => {
   const variantRows = Array.isArray(product.variant_pricing) ? product.variant_pricing : [];
 
@@ -115,6 +157,8 @@ const mapApiProduct = (product: ApiProduct): ProductTableProduct => {
     name: product.name,
     brand: product.brand ?? null,
     spu: product.spu ?? "N/A",
+    jurnal_id: product.jurnal_id ?? null,
+    jurnal_archived: resolveJurnalArchived(product.jurnal_metadata),
     inventory: {
       total_stock: product.inventory?.total_stock ?? normalizedVariants.reduce((sum, item) => sum + item.stock, 0),
     },
@@ -148,6 +192,40 @@ const extractProductsFromPayload = (payload: unknown): ApiProduct[] => {
   }
 
   return [];
+};
+
+const extractPaginationMeta = (payload: unknown): PaginationMeta => {
+  const fallback: PaginationMeta = {
+    currentPage: 1,
+    lastPage: 1,
+    perPage: MASTER_PRODUCT_PAGE_SIZE,
+    total: 0,
+  };
+
+  if (!payload || typeof payload !== "object") {
+    return fallback;
+  }
+
+  const source = payload as {
+    meta?: {
+      current_page?: number;
+      last_page?: number;
+      per_page?: number;
+      total?: number;
+    };
+  };
+
+  const meta = source.meta;
+  if (!meta) {
+    return fallback;
+  }
+
+  return {
+    currentPage: Number(meta.current_page ?? 1),
+    lastPage: Number(meta.last_page ?? 1),
+    perPage: Number(meta.per_page ?? MASTER_PRODUCT_PAGE_SIZE),
+    total: Number(meta.total ?? 0),
+  };
 };
 
 const buildFetchErrorState = (error: unknown): FetchErrorState => {
@@ -208,6 +286,12 @@ export default function MasterProdukPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorState, setErrorState] = useState<FetchErrorState | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [lastPage, setLastPage] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [perPage, setPerPage] = useState(MASTER_PRODUCT_PAGE_SIZE);
+  const [mappingJurnal, setMappingJurnal] = useState(false);
+  const [mappingMessage, setMappingMessage] = useState<string | null>(null);
   const debouncedSearch = useDebounce(search, 500);
 
   useEffect(() => {
@@ -221,15 +305,24 @@ export default function MasterProdukPage() {
         const response = await api.get(resolveProductsEndpoint(), {
           params: {
             search: debouncedSearch || undefined,
-            per_page: 100,
+            page: currentPage,
+            per_page: MASTER_PRODUCT_PAGE_SIZE,
+            only_active: true,
+            exclude_failed_sync: true,
+            only_sync_activated: true,
           },
           signal: controller.signal,
         });
 
         const items = extractProductsFromPayload(response.data);
+        const meta = extractPaginationMeta(response.data);
 
         if (!stillMounted) return;
         setProducts(items.map(mapApiProduct));
+        setCurrentPage(Math.max(1, meta.currentPage));
+        setLastPage(Math.max(1, meta.lastPage));
+        setPerPage(Math.max(1, meta.perPage));
+        setTotalProducts(Math.max(0, meta.total));
       } catch (error) {
         if (isRequestCanceled(error)) return;
 
@@ -252,6 +345,8 @@ export default function MasterProdukPage() {
         }
         if (!stillMounted) return;
         setProducts([]);
+        setTotalProducts(0);
+        setLastPage(1);
         setErrorState(nextErrorState);
       } finally {
         if (stillMounted) setIsLoading(false);
@@ -264,11 +359,51 @@ export default function MasterProdukPage() {
       stillMounted = false;
       controller.abort();
     };
-  }, [debouncedSearch, reloadTick]);
+  }, [currentPage, debouncedSearch, reloadTick]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch]);
 
   const refreshProducts = useCallback(() => {
     setReloadTick((prev) => prev + 1);
   }, []);
+
+  const handleMapJurnalProducts = useCallback(async () => {
+    setMappingJurnal(true);
+    setMappingMessage(null);
+
+    try {
+      const response = await api.post("/v1/integrations/jurnal/products/import", {
+        page: 1,
+        per_page: 50,
+        max_pages: 3,
+        include_archive: true,
+      });
+
+      const result = response.data?.data as
+        | {
+            created?: number;
+            updated?: number;
+            failed_count?: number;
+            imported_count?: number;
+          }
+        | undefined;
+
+      setMappingMessage(
+        `Import Jurnal selesai. Imported: ${result?.imported_count ?? 0}, Created: ${result?.created ?? 0}, Updated: ${result?.updated ?? 0}, Failed: ${result?.failed_count ?? 0}.`
+      );
+      refreshProducts();
+    } catch (error) {
+      if (isAxiosError(error)) {
+        setMappingMessage(error.response?.data?.message ?? "Gagal menarik produk dari Jurnal.");
+      } else {
+        setMappingMessage("Gagal menarik produk dari Jurnal.");
+      }
+    } finally {
+      setMappingJurnal(false);
+    }
+  }, [refreshProducts]);
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
@@ -288,10 +423,12 @@ export default function MasterProdukPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              onClick={handleMapJurnalProducts}
+              disabled={mappingJurnal}
               className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3.5 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-50"
             >
-              <ChevronsUpDown className="h-4 w-4" />
-              Petakan produk
+              {mappingJurnal ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronsUpDown className="h-4 w-4" />}
+              {mappingJurnal ? "Menarik dari Jurnal..." : "Petakan produk"}
             </button>
             <Link
               href="/admin/master-produk/tambah"
@@ -302,6 +439,10 @@ export default function MasterProdukPage() {
             </Link>
           </div>
         </div>
+
+        {mappingMessage ? (
+          <p className="mt-3 text-xs text-slate-600">{mappingMessage}</p>
+        ) : null}
       </section>
 
       <ProductTable
@@ -310,6 +451,16 @@ export default function MasterProdukPage() {
         search={search}
         onSearchChange={setSearch}
         onRefresh={refreshProducts}
+        statusSummary={{
+          active: totalProducts,
+        }}
+        pagination={{
+          currentPage,
+          lastPage,
+          perPage,
+          total: totalProducts,
+          onPageChange: setCurrentPage,
+        }}
       />
 
       {errorState ? (

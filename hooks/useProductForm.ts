@@ -16,6 +16,9 @@ import {
   isInvalidPhotoValue,
 } from "@/lib/product-media";
 
+const WARRANTY_VARIANT_NAME = "Garansi";
+const DEFAULT_WARRANTY_OPTIONS = ["Tanpa Garansi", "Toko - 1 Tahun"];
+
 const buildVariantCombinations = (variants: VariantDefinition[]): VariantCombination[] => {
   const normalized = variants
     .map((variant) => ({
@@ -51,13 +54,53 @@ const buildVariantCombinations = (variants: VariantDefinition[]): VariantCombina
 
 const syncMatrixWithVariants = (
   variants: VariantDefinition[],
-  prevMatrix: Record<string, MatrixPricing>
+  prevMatrix: Record<string, MatrixPricing>,
+  defaultItemWeight = 0
 ): Record<string, MatrixPricing> => {
   const nextMatrix: Record<string, MatrixPricing> = {};
   buildVariantCombinations(variants).forEach((combo) => {
-    nextMatrix[combo.key] = { ...DEFAULT_MATRIX_ROW, ...(prevMatrix[combo.key] ?? {}) };
+    const existingRow = prevMatrix[combo.key];
+    nextMatrix[combo.key] = {
+      ...DEFAULT_MATRIX_ROW,
+      ...(existingRow ?? {}),
+      itemWeight:
+        existingRow && Number.isFinite(Number(existingRow.itemWeight))
+          ? Number(existingRow.itemWeight)
+          : Math.max(0, Number(defaultItemWeight) || 0),
+    };
   });
   return nextMatrix;
+};
+
+const normalizeWarrantyOptions = (options: string[]): string[] =>
+  Array.from(new Set([...DEFAULT_WARRANTY_OPTIONS, ...options.map((option) => option.trim()).filter(Boolean)]));
+
+const ensureWarrantyVariant = (variants: VariantDefinition[], options: string[]): VariantDefinition[] => {
+  const normalizedOptions = normalizeWarrantyOptions(options);
+  const next = [...variants];
+  const warrantyIndex = next.findIndex(
+    (variant) => variant.name.trim().toLowerCase() === WARRANTY_VARIANT_NAME.toLowerCase()
+  );
+
+  if (warrantyIndex < 0) {
+    next.unshift({
+      id: crypto.randomUUID(),
+      name: WARRANTY_VARIANT_NAME,
+      options: normalizedOptions,
+      draftOption: "",
+    });
+    return next;
+  }
+
+  const current = next[warrantyIndex];
+  const mergedOptions = Array.from(new Set([...normalizedOptions, ...current.options.map((option) => option.trim()).filter(Boolean)]));
+  next[warrantyIndex] = {
+    ...current,
+    name: WARRANTY_VARIANT_NAME,
+    options: mergedOptions,
+  };
+
+  return next;
 };
 
 const createInitialState = (): ProductFormState => {
@@ -68,7 +111,7 @@ const createInitialState = (): ProductFormState => {
   return {
     ...initial,
     photos: normalizedPhotos,
-    matrix: syncMatrixWithVariants(initial.variants, initial.matrix),
+    matrix: syncMatrixWithVariants(initial.variants, initial.matrix, initial.inventoryPlan.weight),
   };
 };
 
@@ -156,6 +199,19 @@ export function useProductForm() {
       return {
         ...prev,
         inventoryPlan: nextInventoryPlan,
+        matrix:
+          field === "weight"
+            ? Object.fromEntries(
+                Object.entries(prev.matrix).map(([matrixKey, row]) => [
+                  matrixKey,
+                  calculateVariant({
+                    ...DEFAULT_MATRIX_ROW,
+                    ...row,
+                    itemWeight: Math.max(0, normalizedValue),
+                  }),
+                ])
+              )
+            : prev.matrix,
       };
     });
 
@@ -251,7 +307,7 @@ export function useProductForm() {
       return {
         ...prev,
         variants: nextVariants,
-        matrix: syncMatrixWithVariants(nextVariants, prev.matrix),
+        matrix: syncMatrixWithVariants(nextVariants, prev.matrix, prev.inventoryPlan.weight),
       };
     });
 
@@ -261,7 +317,7 @@ export function useProductForm() {
       return {
         ...prev,
         variants: nextVariants,
-        matrix: syncMatrixWithVariants(nextVariants, prev.matrix),
+        matrix: syncMatrixWithVariants(nextVariants, prev.matrix, prev.inventoryPlan.weight),
       };
     });
 
@@ -273,7 +329,7 @@ export function useProductForm() {
       return {
         ...prev,
         variants: nextVariants,
-        matrix: syncMatrixWithVariants(nextVariants, prev.matrix),
+        matrix: syncMatrixWithVariants(nextVariants, prev.matrix, prev.inventoryPlan.weight),
       };
     });
 
@@ -296,7 +352,7 @@ export function useProductForm() {
       return {
         ...prev,
         variants: nextVariants,
-        matrix: syncMatrixWithVariants(nextVariants, prev.matrix),
+        matrix: syncMatrixWithVariants(nextVariants, prev.matrix, prev.inventoryPlan.weight),
       };
     });
 
@@ -308,7 +364,7 @@ export function useProductForm() {
       return {
         ...prev,
         variants: nextVariants,
-        matrix: syncMatrixWithVariants(nextVariants, prev.matrix),
+        matrix: syncMatrixWithVariants(nextVariants, prev.matrix, prev.inventoryPlan.weight),
       };
     });
 
@@ -316,6 +372,24 @@ export function useProductForm() {
     (nextVariants?: VariantDefinition[]) => buildVariantCombinations(nextVariants ?? variants),
     [variants]
   );
+
+  const syncWarrantyVariantOptions = useCallback((options: string[]) => {
+    setForm((prev) => {
+      const nextVariants = ensureWarrantyVariant(prev.variants, options);
+      const prevSignature = JSON.stringify(prev.variants.map((variant) => ({ name: variant.name, options: variant.options })));
+      const nextSignature = JSON.stringify(nextVariants.map((variant) => ({ name: variant.name, options: variant.options })));
+
+      if (prevSignature === nextSignature) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        variants: nextVariants,
+        matrix: syncMatrixWithVariants(nextVariants, prev.matrix, prev.inventoryPlan.weight),
+      };
+    });
+  }, []);
 
   return {
     form,
@@ -328,6 +402,7 @@ export function useProductForm() {
     matrixData,
     combinations,
     generateCombinations: buildCombinations,
+    syncWarrantyVariantOptions,
     updateField,
     handleUpdateBasicInfo,
     updateLogistics,
@@ -343,3 +418,4 @@ export function useProductForm() {
     removeVariantOption,
   };
 }
+
