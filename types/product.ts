@@ -43,6 +43,8 @@ export interface MatrixPricing {
   entraversePrice: number;
   tokopediaPrice: number;
   tokopediaFee: number;
+  tiktokPrice: number;
+  tiktokFee: number;
   shopeePrice: number;
   shopeeFee: number;
   skuSeller: string;

@@ -43,6 +43,8 @@ export default function CreateProductPage() {
         entraverse_price: row.entraversePrice,
         tokopedia_price: row.tokopediaPrice,
         tokopedia_fee: row.tokopediaFee,
+        tiktok_price: row.tiktokPrice,
+        tiktok_fee: row.tiktokFee,
         shopee_price: row.shopeePrice,
         shopee_fee: row.shopeeFee,
         sku_seller: row.skuSeller,

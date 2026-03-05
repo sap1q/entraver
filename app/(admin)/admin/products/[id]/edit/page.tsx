@@ -30,6 +30,15 @@ const toNumber = (value: unknown): number => {
 };
 
 const toText = (value: unknown): string => (typeof value === "string" ? value : "");
+const firstDefined = (row: RawMatrixRow, keys: string[]): unknown => {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(row, key)) {
+      return row[key];
+    }
+  }
+
+  return undefined;
+};
 
 const toSlug = (value: string): string =>
   value
@@ -38,6 +47,44 @@ const toSlug = (value: string): string =>
     .replace(/[^a-z0-9\s-]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-");
+
+const DEFAULT_WARRANTY_VARIANT_NAME = "Garansi";
+const DEFAULT_WARRANTY_OPTIONS = ["Tanpa Garansi", "Toko - 1 Tahun"];
+
+const ensureWarrantyVariantDefaults = (variants: VariantDefinition[]): VariantDefinition[] => {
+  const normalized = variants
+    .map((variant) => ({
+      ...variant,
+      name: variant.name.trim(),
+      options: Array.from(new Set(variant.options.map((option) => option.trim()).filter(Boolean))),
+    }))
+    .filter((variant) => variant.name.length > 0);
+
+  const warrantyIndex = normalized.findIndex(
+    (variant) => variant.name.toLowerCase() === DEFAULT_WARRANTY_VARIANT_NAME.toLowerCase()
+  );
+
+  if (warrantyIndex >= 0) {
+    const warranty = normalized[warrantyIndex];
+    const mergedOptions = Array.from(new Set([...DEFAULT_WARRANTY_OPTIONS, ...warranty.options]));
+    normalized[warrantyIndex] = {
+      ...warranty,
+      name: DEFAULT_WARRANTY_VARIANT_NAME,
+      options: mergedOptions,
+    };
+    return normalized;
+  }
+
+  return [
+    {
+      id: crypto.randomUUID(),
+      name: DEFAULT_WARRANTY_VARIANT_NAME,
+      options: [...DEFAULT_WARRANTY_OPTIONS],
+      draftOption: "",
+    },
+    ...normalized,
+  ];
+};
 
 const normalizeVariantDefinitions = (product: ProductDetail): VariantDefinition[] => {
   const source = Array.isArray(product.variants) ? product.variants : [];
@@ -52,7 +99,7 @@ const normalizeVariantDefinitions = (product: ProductDetail): VariantDefinition[
     })
     .filter((item) => item.name.length > 0 && item.options.length > 0);
 
-  if (fromVariants.length > 0) return fromVariants;
+  if (fromVariants.length > 0) return ensureWarrantyVariantDefaults(fromVariants);
 
   const optionMap = new Map<string, Set<string>>();
   const pricingRows = Array.isArray(product.variant_pricing) ? product.variant_pricing : [];
@@ -79,9 +126,11 @@ const normalizeVariantDefinitions = (product: ProductDetail): VariantDefinition[
     }))
     .filter((variant) => variant.name.length > 0 && variant.options.length > 0);
 
-  return derived.length > 0
-    ? derived
-    : [{ id: crypto.randomUUID(), name: "Garansi", options: ["Tanpa Garansi"], draftOption: "" }];
+  return ensureWarrantyVariantDefaults(
+    derived.length > 0
+      ? derived
+      : [{ id: crypto.randomUUID(), name: "Garansi", options: ["Tanpa Garansi"], draftOption: "" }]
+  );
 };
 
 const buildVariantKey = (options: Record<string, unknown>, variantNames: string[]): string => {
@@ -131,40 +180,45 @@ const buildVariantCombinationsForPrefill = (variants: VariantDefinition[]) => {
   });
 };
 
-const mapPricingRow = (row: RawMatrixRow): MatrixPricing => ({
+const mapPricingRow = (row: RawMatrixRow, fallbackWeight = 0): MatrixPricing => ({
   ...DEFAULT_MATRIX_ROW,
-  stock: Math.max(0, toNumber(row.stock)),
-  purchasePrice: Math.max(0, toNumber(row.purchase_price)),
-  currency: (toText(row.currency) as MatrixPricing["currency"]) || DEFAULT_MATRIX_ROW.currency,
-  exchangeRate: Math.max(0, toNumber(row.exchange_rate)),
-  exchangeValue: Math.max(0, toNumber(row.exchange_value)),
-  shipping: (toText(row.shipping) as MatrixPricing["shipping"]) || DEFAULT_MATRIX_ROW.shipping,
-  shippingCost: Math.max(0, toNumber(row.shipping_cost)),
-  arrivalCost: Math.max(0, toNumber(row.arrival_cost)),
-  offlinePrice: Math.max(0, toNumber(row.offline_price)),
-  entraversePrice: Math.max(0, toNumber(row.entraverse_price)),
-  tokopediaPrice: Math.max(0, toNumber(row.tokopedia_price)),
-  tokopediaFee: Math.max(0, toNumber(row.tokopedia_fee)),
-  shopeePrice: Math.max(0, toNumber(row.shopee_price)),
-  shopeeFee: Math.max(0, toNumber(row.shopee_fee)),
-  skuSeller: toText(row.sku_seller),
-  itemWeight: Math.max(0, toNumber(row.item_weight)),
-  avgSalesA: Math.max(0, toNumber(row.avg_sales_a)),
-  stockoutDateA: toText(row.stockout_date_a) || DEFAULT_MATRIX_ROW.stockoutDateA,
-  stockoutFactorA: toText(row.stockout_factor_a) || DEFAULT_MATRIX_ROW.stockoutFactorA,
-  avgSalesB: Math.max(0, toNumber(row.avg_sales_b)),
-  stockoutDateB: toText(row.stockout_date_b) || DEFAULT_MATRIX_ROW.stockoutDateB,
-  stockoutFactorB: toText(row.stockout_factor_b) || DEFAULT_MATRIX_ROW.stockoutFactorB,
-  avgDailyFinal: Math.max(0, toNumber(row.avg_daily_final)),
-  startDate: toText(row.start_date),
-  predictedInitialStock: Math.max(0, toNumber(row.predicted_initial_stock)),
-  leadTime: Math.max(0, toNumber(row.lead_time)),
-  reorderPoint: Math.max(0, toNumber(row.reorder_point)),
-  need15Days: Math.max(0, toNumber(row.need_15_days)),
-  inTransitStock: Math.max(0, toNumber(row.in_transit_stock)),
-  nextProcurement: Math.max(0, toNumber(row.next_procurement)),
+  stock: Math.max(0, toNumber(firstDefined(row, ["stock"]))),
+  purchasePrice: Math.max(0, toNumber(firstDefined(row, ["purchase_price", "purchasePrice"]))),
+  currency: (toText(firstDefined(row, ["currency"])) as MatrixPricing["currency"]) || DEFAULT_MATRIX_ROW.currency,
+  exchangeRate: Math.max(0, toNumber(firstDefined(row, ["exchange_rate", "exchangeRate"]))),
+  exchangeValue: Math.max(0, toNumber(firstDefined(row, ["exchange_value", "exchangeValue"]))),
+  shipping: (toText(firstDefined(row, ["shipping"])) as MatrixPricing["shipping"]) || DEFAULT_MATRIX_ROW.shipping,
+  shippingCost: Math.max(0, toNumber(firstDefined(row, ["shipping_cost", "shippingCost"]))),
+  arrivalCost: Math.max(0, toNumber(firstDefined(row, ["arrival_cost", "arrivalCost"]))),
+  offlinePrice: Math.max(0, toNumber(firstDefined(row, ["offline_price", "offlinePrice"]))),
+  entraversePrice: Math.max(0, toNumber(firstDefined(row, ["entraverse_price", "entraversePrice"]))),
+  tokopediaPrice: Math.max(0, toNumber(firstDefined(row, ["tokopedia_price", "tokopediaPrice"]))),
+  tokopediaFee: Math.max(0, toNumber(firstDefined(row, ["tokopedia_fee", "tokopediaFee"]))),
+  tiktokPrice: Math.max(0, toNumber(firstDefined(row, ["tiktok_price", "tiktokPrice", "tokopedia_price", "tokopediaPrice"]))),
+  tiktokFee: Math.max(0, toNumber(firstDefined(row, ["tiktok_fee", "tiktokFee", "tokopedia_fee", "tokopediaFee"]))),
+  shopeePrice: Math.max(0, toNumber(firstDefined(row, ["shopee_price", "shopeePrice"]))),
+  shopeeFee: Math.max(0, toNumber(firstDefined(row, ["shopee_fee", "shopeeFee"]))),
+  skuSeller: toText(firstDefined(row, ["sku_seller", "skuSeller"])),
+  itemWeight: Math.max(
+    0,
+    toNumber(firstDefined(row, ["item_weight", "itemWeight", "weight"])) || Math.max(0, toNumber(fallbackWeight))
+  ),
+  avgSalesA: Math.max(0, toNumber(firstDefined(row, ["avg_sales_a", "avgSalesA"]))),
+  stockoutDateA: toText(firstDefined(row, ["stockout_date_a", "stockoutDateA"])) || DEFAULT_MATRIX_ROW.stockoutDateA,
+  stockoutFactorA: toText(firstDefined(row, ["stockout_factor_a", "stockoutFactorA"])) || DEFAULT_MATRIX_ROW.stockoutFactorA,
+  avgSalesB: Math.max(0, toNumber(firstDefined(row, ["avg_sales_b", "avgSalesB"]))),
+  stockoutDateB: toText(firstDefined(row, ["stockout_date_b", "stockoutDateB"])) || DEFAULT_MATRIX_ROW.stockoutDateB,
+  stockoutFactorB: toText(firstDefined(row, ["stockout_factor_b", "stockoutFactorB"])) || DEFAULT_MATRIX_ROW.stockoutFactorB,
+  avgDailyFinal: Math.max(0, toNumber(firstDefined(row, ["avg_daily_final", "avgDailyFinal"]))),
+  startDate: toText(firstDefined(row, ["start_date", "startDate"])),
+  predictedInitialStock: Math.max(0, toNumber(firstDefined(row, ["predicted_initial_stock", "predictedInitialStock"]))),
+  leadTime: Math.max(0, toNumber(firstDefined(row, ["lead_time", "leadTime"]))),
+  reorderPoint: Math.max(0, toNumber(firstDefined(row, ["reorder_point", "reorderPoint"]))),
+  need15Days: Math.max(0, toNumber(firstDefined(row, ["need_15_days", "need15Days"]))),
+  inTransitStock: Math.max(0, toNumber(firstDefined(row, ["in_transit_stock", "inTransitStock"]))),
+  nextProcurement: Math.max(0, toNumber(firstDefined(row, ["next_procurement", "nextProcurement"]))),
   procurementStatus:
-    (toText(row.status) as MatrixPricing["procurementStatus"]) || DEFAULT_MATRIX_ROW.procurementStatus,
+    (toText(firstDefined(row, ["status", "procurementStatus"])) as MatrixPricing["procurementStatus"]) || DEFAULT_MATRIX_ROW.procurementStatus,
 });
 
 const buildPrefilledState = (product: ProductDetail): ProductFormState => {
@@ -172,6 +226,8 @@ const buildPrefilledState = (product: ProductDetail): ProductFormState => {
   const combinations = buildVariantCombinationsForPrefill(variantDefinitions);
   const combinationByLabel = new Map(combinations.map((combo) => [combo.label.trim().toLowerCase(), combo.key]));
   const variantNames = variantDefinitions.map((variant) => variant.name);
+  const rawInventory = product.inventory && typeof product.inventory === "object" ? product.inventory : {};
+  const inventoryWeight = Math.max(0, toNumber(rawInventory.weight));
   const pricingRows = Array.isArray(product.variant_pricing) ? product.variant_pricing : [];
   const matrix: Record<string, MatrixPricing> = {};
 
@@ -182,14 +238,13 @@ const buildPrefilledState = (product: ProductDetail): ProductFormState => {
     const keyFromOptions = buildVariantKey(options, variantNames);
     const keyFromLabel = combinationByLabel.get(toText(rowObj.label).trim().toLowerCase());
     const key = keyFromOptions !== "default" ? keyFromOptions : (keyFromLabel ?? "default");
-    matrix[key] = mapPricingRow(row as RawMatrixRow);
+    matrix[key] = mapPricingRow(row as RawMatrixRow, inventoryWeight);
   });
 
   if (Object.keys(matrix).length === 0) {
     matrix.default = { ...DEFAULT_MATRIX_ROW };
   }
 
-  const rawInventory = product.inventory && typeof product.inventory === "object" ? product.inventory : {};
   const dimensions =
     rawInventory && typeof rawInventory.dimensions_cm === "object" && rawInventory.dimensions_cm !== null
       ? (rawInventory.dimensions_cm as Record<string, unknown>)
@@ -296,6 +351,8 @@ export default function EditProductPage() {
         entraverse_price: row.entraversePrice,
         tokopedia_price: row.tokopediaPrice,
         tokopedia_fee: row.tokopediaFee,
+        tiktok_price: row.tiktokPrice,
+        tiktok_fee: row.tiktokFee,
         shopee_price: row.shopeePrice,
         shopee_fee: row.shopeeFee,
         sku_seller: row.skuSeller,

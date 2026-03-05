@@ -40,6 +40,8 @@ export const DEFAULT_MATRIX_ROW: MatrixPricing = {
   entraversePrice: 0,
   tokopediaPrice: 0,
   tokopediaFee: 0,
+  tiktokPrice: 0,
+  tiktokFee: 0,
   shopeePrice: 0,
   shopeeFee: 0,
   skuSeller: "",
@@ -76,7 +78,14 @@ export const createInitialProductForm = (): ProductFormState => ({
   inventoryPlan: { weight: 0, length: 0, width: 0, height: 0, volume: 0 },
   tradeIn: false,
   photos: Array.from({ length: MAX_PHOTOS }, () => ({ file: null, preview: "" })),
-  variants: [{ id: crypto.randomUUID(), name: "Garansi", options: ["Tanpa Garansi"], draftOption: "" }],
+  variants: [
+    {
+      id: crypto.randomUUID(),
+      name: "Garansi",
+      options: ["Tanpa Garansi", "Toko - 1 Tahun"],
+      draftOption: "",
+    },
+  ],
   matrix: {},
 });
 

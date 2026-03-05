@@ -8,17 +8,59 @@ type VariantRowProps = {
   onUpdateField: (key: string, field: keyof MatrixPricing, value: number | string) => void;
   selected: boolean;
   onSelect: () => void;
+  isExchangeValueEditable?: boolean;
 };
 
 const inputBase =
   "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300";
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const rupiahFormatter = new Intl.NumberFormat("id-ID");
+
+const formatRupiahInput = (value: number): string => rupiahFormatter.format(Math.max(0, Number(value) || 0));
+const parseRupiahInput = (value: string): number => {
+  const digits = value.replace(/[^\d]/g, "");
+  if (digits === "") return 0;
+  return Number(digits) || 0;
+};
+
+const RupiahInput = ({
+  value,
+  onChange,
+  readOnly = false,
+  className = "",
+}: {
+  value: number;
+  onChange?: (value: number) => void;
+  readOnly?: boolean;
+  className?: string;
+}) => (
+  <div className="relative">
+    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500">
+      Rp
+    </span>
+    <input
+      type="text"
+      inputMode="numeric"
+      readOnly={readOnly}
+      className={`${inputBase} pl-10 ${readOnly ? "cursor-not-allowed bg-blue-50 text-blue-700" : ""} ${className}`}
+      value={formatRupiahInput(value)}
+      onChange={(event) => onChange?.(parseRupiahInput(event.target.value))}
+    />
+  </div>
+);
 
 const toDateInputValue = (value: string): string => {
   const trimmed = String(value ?? "").trim();
   if (!trimmed || trimmed === "-") return "";
   return DATE_REGEX.test(trimmed) ? trimmed : "";
+};
+
+const formatWeightKg = (gramValue: number): string => {
+  const safeGram = Math.max(0, Number(gramValue) || 0);
+  const kg = safeGram / 1000;
+  if (!Number.isFinite(kg)) return "0";
+  return kg.toFixed(3).replace(/\.?0+$/, "");
 };
 
 const StatusBadge = ({ status }: { status: MatrixPricing["procurementStatus"] }) => {
@@ -31,7 +73,14 @@ const StatusBadge = ({ status }: { status: MatrixPricing["procurementStatus"] })
   return <span className={`rounded-full px-2 py-1 text-xs font-medium ${styles[status]}`}>{status}</span>;
 };
 
-export default function VariantRow({ combo, row, onUpdateField, selected, onSelect }: VariantRowProps) {
+export default function VariantRow({
+  combo,
+  row,
+  onUpdateField,
+  selected,
+  onSelect,
+  isExchangeValueEditable = true,
+}: VariantRowProps) {
   const stockoutDateA = toDateInputValue(row.stockoutDateA);
   const stockoutDateB = toDateInputValue(row.stockoutDateB);
   const startDate = toDateInputValue(row.startDate);
@@ -53,7 +102,13 @@ export default function VariantRow({ combo, row, onUpdateField, selected, onSele
         {combo.label}
       </td>
       <td className="min-w-[140px] px-2 py-2">
-        <input type="number" min={0} className={inputBase} value={row.purchasePrice} onChange={(e) => onUpdateField(combo.key, "purchasePrice", Number(e.target.value))} />
+        <input
+          type="number"
+          min={0}
+          className={inputBase}
+          value={row.purchasePrice}
+          onChange={(e) => onUpdateField(combo.key, "purchasePrice", Number(e.target.value))}
+        />
       </td>
       <td className="min-w-[120px] px-2 py-2">
         <select className={inputBase} value={row.currency} onChange={(e) => onUpdateField(combo.key, "currency", e.target.value)}>
@@ -66,7 +121,12 @@ export default function VariantRow({ combo, row, onUpdateField, selected, onSele
         </select>
       </td>
       <td className="min-w-[150px] px-2 py-2">
-        <input type="number" min={0} className={inputBase} value={row.exchangeValue} onChange={(e) => onUpdateField(combo.key, "exchangeValue", Number(e.target.value))} />
+        <RupiahInput
+          value={row.exchangeValue}
+          readOnly={!isExchangeValueEditable}
+          className={isExchangeValueEditable ? "" : "bg-slate-100 text-slate-500"}
+          onChange={(value) => onUpdateField(combo.key, "exchangeValue", value)}
+        />
       </td>
       <td className="min-w-[130px] px-2 py-2">
         <select className={inputBase} value={row.shipping} onChange={(e) => onUpdateField(combo.key, "shipping", e.target.value)}>
@@ -76,18 +136,58 @@ export default function VariantRow({ combo, row, onUpdateField, selected, onSele
         </select>
       </td>
       <td className="min-w-[150px] px-2 py-2">
-        <input type="number" min={0} className={inputBase} value={row.arrivalCost} onChange={(e) => onUpdateField(combo.key, "arrivalCost", Number(e.target.value))} />
+        <RupiahInput
+          value={row.arrivalCost}
+          onChange={(value) => onUpdateField(combo.key, "arrivalCost", value)}
+        />
       </td>
       <td className="min-w-[170px] px-2 py-2">
-        <input readOnly className={`${inputBase} bg-blue-50 text-blue-700`} value={row.purchasePrice * row.exchangeValue + row.arrivalCost} />
+        <RupiahInput
+          value={row.purchasePrice * row.exchangeValue + row.arrivalCost}
+          readOnly
+        />
       </td>
-      <td className="min-w-[160px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.offlinePrice} onChange={(e) => onUpdateField(combo.key, "offlinePrice", Number(e.target.value))} /></td>
-      <td className="min-w-[180px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.entraversePrice} onChange={(e) => onUpdateField(combo.key, "entraversePrice", Number(e.target.value))} /></td>
-      <td className="min-w-[170px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.tokopediaPrice} onChange={(e) => onUpdateField(combo.key, "tokopediaPrice", Number(e.target.value))} /></td>
-      <td className="min-w-[160px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.shopeePrice} onChange={(e) => onUpdateField(combo.key, "shopeePrice", Number(e.target.value))} /></td>
+      <td className="min-w-[160px] px-2 py-2">
+        <RupiahInput
+          value={row.offlinePrice}
+          onChange={(value) => onUpdateField(combo.key, "offlinePrice", value)}
+        />
+      </td>
+      <td className="min-w-[180px] px-2 py-2">
+        <RupiahInput
+          value={row.entraversePrice}
+          onChange={(value) => onUpdateField(combo.key, "entraversePrice", value)}
+        />
+      </td>
+      <td className="min-w-[170px] px-2 py-2">
+        <RupiahInput
+          value={row.tokopediaPrice}
+          onChange={(value) => onUpdateField(combo.key, "tokopediaPrice", value)}
+        />
+      </td>
+      <td className="min-w-[160px] px-2 py-2">
+        <RupiahInput
+          value={row.shopeePrice}
+          onChange={(value) => onUpdateField(combo.key, "shopeePrice", value)}
+        />
+      </td>
       <td className="min-w-[100px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.stock} onChange={(e) => onUpdateField(combo.key, "stock", Number(e.target.value))} /></td>
       <td className="min-w-[150px] px-2 py-2"><input className={inputBase} value={row.skuSeller} onChange={(e) => onUpdateField(combo.key, "skuSeller", e.target.value)} /></td>
-      <td className="min-w-[130px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.itemWeight} onChange={(e) => onUpdateField(combo.key, "itemWeight", Number(e.target.value))} /></td>
+      <td className="min-w-[130px] px-2 py-2">
+        <div className="relative">
+          <input
+            readOnly
+            disabled
+            type="text"
+            className={`${inputBase} cursor-not-allowed bg-slate-100 pr-12 text-slate-500 disabled:opacity-100`}
+            value={formatWeightKg(row.itemWeight)}
+            title="Berat mengikuti Parameter Perencanaan Stok"
+          />
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500">
+            KG
+          </span>
+        </div>
+      </td>
       <td className="min-w-[220px] px-2 py-2"><input type="number" min={0} className={inputBase} value={row.avgSalesA} onChange={(e) => onUpdateField(combo.key, "avgSalesA", Number(e.target.value))} /></td>
       <td className="min-w-[220px] px-2 py-2"><input type="date" className={inputBase} value={stockoutDateA} onChange={(e) => handleDateChange("stockoutDateA", e.target.value)} /></td>
       <td className="min-w-[220px] px-2 py-2"><input className={inputBase} value={row.stockoutFactorA} onChange={(e) => onUpdateField(combo.key, "stockoutFactorA", e.target.value)} /></td>
