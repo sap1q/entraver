@@ -77,6 +77,7 @@ export interface ProductBasicInfo {
   category: string;
   categoryId: string;
   brand: string;
+  brandId: string;
   spu: string;
   status: "active" | "pending_approval" | "inactive";
   barcode: string;

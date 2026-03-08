@@ -72,6 +72,7 @@ export default function CreateProductPage() {
       category_id: form.basic.categoryId || undefined,
       category: form.basic.category,
       brand: form.basic.brand,
+      brand_id: form.basic.brandId || undefined,
       slug: form.basic.slug,
       spu: form.basic.spu,
       barcode: form.basic.barcode,
@@ -102,6 +103,7 @@ export default function CreateProductPage() {
     formData.append("trade_in", payload.trade_in ? "1" : "0");
     formData.append("description", payload.description);
     if (payload.category_id) formData.append("category_id", payload.category_id);
+    if (payload.brand_id) formData.append("brand_id", payload.brand_id);
     formData.append("inventory", JSON.stringify(payload.inventory));
     formData.append("variants", JSON.stringify(payload.variants));
     formData.append("variant_pricing", JSON.stringify(payload.variant_pricing));

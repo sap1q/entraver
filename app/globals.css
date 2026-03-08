@@ -1,5 +1,8 @@
 @config "../tailwind.config.ts";
 @import "tailwindcss";
+@import "swiper/css";
+@import "swiper/css/navigation";
+@import "swiper/css/pagination";
 
 :root {
   --background: #ffffff;
@@ -57,4 +60,40 @@ body {
     linear-gradient(to right, #e5e7eb 1px, transparent 1px),
     linear-gradient(to bottom, #e5e7eb 1px, transparent 1px);
   background-size: 20px 20px;
+}
+
+.banner-slider-pagination {
+  display: inline-flex;
+  justify-content: center;
+  width: fit-content !important;
+  min-height: 15px;
+  align-items: center;
+  gap: 3px;
+  line-height: 0;
+  position: static !important;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  border-radius: 9999px;
+  border: 1px solid #b8c2d5;
+  background: #dce2ee;
+  padding: 1px 5px;
+}
+
+.banner-slider-pagination .swiper-pagination-bullet {
+  display: block;
+  margin: 0 !important;
+  width: 6px;
+  height: 3px;
+  border-radius: 9999px;
+  background: #9aa5b8;
+  opacity: 1;
+  transition: all 180ms ease;
+}
+
+.banner-slider-pagination .swiper-pagination-bullet-active {
+  width: 10px;
+  background: #1f2937;
 }

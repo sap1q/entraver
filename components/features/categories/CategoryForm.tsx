@@ -374,9 +374,9 @@ export default function CategoryForm({
                     type="button"
                     onClick={openFilePicker}
                     className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                    aria-label="Ganti gambar ikon PNG atau SVG"
+                    aria-label="Ganti gambar ikon kategori"
                   >
-                    Ganti Gambar (PNG/SVG)
+                    Ganti Gambar
                   </button>
 
                   {svgPreview ? (
@@ -394,16 +394,16 @@ export default function CategoryForm({
 
                 <p className="inline-flex items-center gap-1.5 text-center text-xs text-slate-500">
                   <Info className="h-3.5 w-3.5" />
-                  Gunakan format .png atau .svg dengan aspek rasio 1:1 untuk hasil terbaik.
+                  Gunakan format .png, .jpg, .jpeg, .webp, atau .svg dengan aspek rasio 1:1 untuk hasil terbaik.
                 </p>
 
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".png,.svg,image/png,image/svg+xml"
+                  accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
                   onChange={handleFileUpload}
                   className="sr-only"
-                  aria-label="Pilih file ikon PNG atau SVG"
+                  aria-label="Pilih file ikon PNG, JPG, WEBP, atau SVG"
                 />
               </div>
             </div>

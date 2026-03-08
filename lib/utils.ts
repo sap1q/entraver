@@ -70,6 +70,7 @@ export const createInitialProductForm = (): ProductFormState => ({
     category: "",
     categoryId: "",
     brand: "",
+    brandId: "",
     spu: "",
     status: "active",
     barcode: "",

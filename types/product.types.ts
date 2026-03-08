@@ -97,3 +97,81 @@ export interface ProductFormData {
   category_id: string;
   category_name?: string;
 }
+
+export interface Product {
+  id: string;
+  name: string;
+  slug: string;
+  price: number;
+  original_price?: number;
+  discount_percentage?: number;
+  rating: number;
+  sold_count: number;
+  image: string;
+  category: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  brand: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  is_wishlisted?: boolean;
+  free_shipping?: boolean;
+  stock: number;
+  specs?: Record<string, string | number>;
+}
+
+export interface ProductFilters {
+  categories?: string[];
+  price_min?: number;
+  price_max?: number;
+  ratings?: number[];
+  brands?: string[];
+  sort_by?: "popular" | "price_asc" | "price_desc" | "newest" | "rating";
+  page?: number;
+  per_page?: number;
+  search?: string;
+}
+
+export interface ProductApiResponse {
+  success: boolean;
+  data: Product[];
+  meta: {
+    current_page: number;
+    last_page: number;
+    total: number;
+    per_page: number;
+    filters?: ProductFilters;
+  };
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  product_count: number;
+  icon?: string;
+}
+
+export interface Brand {
+  id: string;
+  name: string;
+  slug: string;
+  product_count: number;
+  logo?: string;
+}
+
+export interface ApiSuccessResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+}
+
+export interface WishlistToggleResponse {
+  success: boolean;
+  message: string;
+  is_wishlisted: boolean;
+}

@@ -2,6 +2,7 @@
 
 import type { ProductBasicInfo } from "@/types/product";
 import CategoryDropdown from "@/components/features/products/CategoryDropdown";
+import BrandDropdown from "@/components/features/products/BrandDropdown";
 
 type BasicInfoProps = {
   basic: ProductBasicInfo;
@@ -42,11 +43,13 @@ export default function BasicInfo({ basic, handleUpdateBasicInfo }: BasicInfoPro
         </div>
         <div>
           <label className={baseLabelClass}>Brand</label>
-          <input
-            value={basic.brand}
-            onChange={(event) => handleUpdateBasicInfo("brand", event.target.value)}
-            className={baseInputClass}
-            placeholder="Masukkan brand"
+          <BrandDropdown
+            value={basic.brandId}
+            fallbackLabel={basic.brand}
+            onChange={(brandId, brandName) => {
+              handleUpdateBasicInfo("brandId", brandId);
+              handleUpdateBasicInfo("brand", brandName);
+            }}
           />
         </div>
         <div>

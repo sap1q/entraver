@@ -393,10 +393,18 @@ export function useCategoryForm(args?: { id?: string; initialCategory?: Category
 
       return { ok: true as const, data: result };
     } catch (err) {
-      const axiosError = err as AxiosError<{ message?: string }>;
+      const axiosError = err as AxiosError<{ message?: string; errors?: Record<string, string[]> }>;
       if (axiosError.response?.status === 401) {
         setError("Sesi habis atau token tidak valid. Silakan login ulang.");
         return { ok: false as const, unauthorized: true as const };
+      }
+      if (axiosError.response?.status === 422) {
+        const validationErrors = axiosError.response.data?.errors ?? {};
+        const firstValidationError = Object.values(validationErrors).flat().find((message) => Boolean(message));
+        if (firstValidationError) {
+          setError(firstValidationError);
+          return { ok: false as const, unauthorized: false as const };
+        }
       }
       if (axiosError.code === "ECONNABORTED") {
         setError("Permintaan timeout. Data kategori cukup besar atau koneksi lambat. Silakan coba lagi.");

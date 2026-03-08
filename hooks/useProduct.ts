@@ -8,6 +8,7 @@ export type ProductDetail = {
   id: string;
   name: string;
   brand?: string | null;
+  brand_id?: string | null;
   category?: string | null;
   category_id?: string | null;
   slug?: string | null;

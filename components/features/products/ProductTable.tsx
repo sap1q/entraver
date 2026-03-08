@@ -1,8 +1,11 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useState } from "react";
 import { Loader2, Search } from "lucide-react";
-import ProductTableRow, { type ProductStatus, type ProductTableRowProduct } from "@/components/features/products/ProductTableRow";
+import ProductTableRow, {
+  type ProductStatus,
+  type ProductTableRowProduct,
+} from "@/components/features/products/ProductTableRow";
 import DeleteConfirmationModal from "@/components/ui/DeleteConfirmationModal";
 import { useProductActions } from "@/hooks/useProductActions";
 
@@ -12,11 +15,12 @@ interface ProductTableProps {
   search: string;
   onSearchChange: (value: string) => void;
   onRefresh: () => void | Promise<void>;
-  statusSummary?: {
-    active?: number;
-    pending?: number;
-    inactive?: number;
-  };
+  statusFilter: "all" | ProductStatus;
+  onStatusFilterChange: (value: "all" | ProductStatus) => void;
+  onToggleFeatured: (product: ProductTableRowProduct) => void | Promise<void>;
+  onToggleStatus: (product: ProductTableRowProduct) => void | Promise<void>;
+  updatingFeaturedIds?: Record<string, boolean>;
+  updatingStatusIds?: Record<string, boolean>;
   pagination?: {
     currentPage: number;
     lastPage: number;
@@ -28,19 +32,20 @@ interface ProductTableProps {
 
 export type ProductTableProduct = ProductTableRowProduct;
 
-const statusPillBase =
-  "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition";
-
 export default function ProductTable({
   products,
   isLoading,
   search,
   onSearchChange,
   onRefresh,
-  statusSummary,
+  statusFilter,
+  onStatusFilterChange,
+  onToggleFeatured,
+  onToggleStatus,
+  updatingFeaturedIds,
+  updatingStatusIds,
   pagination,
 }: ProductTableProps) {
-  const [activeStatus, setActiveStatus] = useState<ProductStatus>("active");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [openActionId, setOpenActionId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Pick<ProductTableRowProduct, "id" | "name"> | null>(null);
@@ -48,20 +53,6 @@ export default function ProductTable({
   const { handleEdit, handleDelete, deleteLoading, toasts, dismissToast } = useProductActions({
     onDeleted: onRefresh,
   });
-
-  const filteredProducts = useMemo(
-    () => products.filter((product) => product.status === activeStatus),
-    [activeStatus, products]
-  );
-
-  const statusCounts = useMemo(
-    () => ({
-      active: statusSummary?.active ?? products.filter((product) => product.status === "active").length,
-      pending: statusSummary?.pending ?? products.filter((product) => product.status === "pending").length,
-      inactive: statusSummary?.inactive ?? products.filter((product) => product.status === "inactive").length,
-    }),
-    [products, statusSummary]
-  );
 
   return (
     <>
@@ -71,80 +62,40 @@ export default function ProductTable({
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-semibold text-slate-800">Daftar Produk</h2>
               <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-                {filteredProducts.length} produk
+                {products.length} produk
               </span>
             </div>
 
-            <label className="flex w-full max-w-xs items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-slate-500">
-              <Search className="h-4 w-4 text-blue-500" />
-              <input
-                value={search}
-                onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="Search"
-                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-                aria-label="Cari produk"
-              />
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" /> : null}
-            </label>
-          </div>
+            <div className="flex w-full max-w-[520px] flex-wrap items-center gap-2 sm:w-auto">
+              <label className="flex h-10 min-w-[190px] items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 text-slate-500">
+                <Search className="h-4 w-4 text-blue-500" />
+                <input
+                  value={search}
+                  onChange={(event) => onSearchChange(event.target.value)}
+                  placeholder="Cari produk"
+                  className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                  aria-label="Cari produk"
+                />
+                {isLoading ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" /> : null}
+              </label>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveStatus("active")}
-              className={`${statusPillBase} ${
-                activeStatus === "active"
-                  ? "border-blue-500 bg-blue-600 text-white"
-                  : "border-blue-200 bg-blue-50 text-blue-700"
-              }`}
-            >
-              Aktif
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] ${
-                  activeStatus === "active" ? "bg-white/20 text-white" : "bg-white text-blue-700"
-                }`}
-              >
-                {statusCounts.active}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveStatus("pending")}
-              className={`${statusPillBase} ${
-                activeStatus === "pending"
-                  ? "border-blue-500 bg-blue-600 text-white"
-                  : "border-blue-200 bg-blue-50 text-blue-700"
-              }`}
-            >
-              Menunggu Persetujuan
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] ${
-                  activeStatus === "pending" ? "bg-white/20 text-white" : "bg-white text-blue-700"
-                }`}
-              >
-                {statusCounts.pending}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveStatus("inactive")}
-              className={`${statusPillBase} ${
-                activeStatus === "inactive"
-                  ? "border-blue-500 bg-blue-600 text-white"
-                  : "border-blue-200 bg-blue-50 text-blue-700"
-              }`}
-            >
-              Non Aktif
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] ${
-                  activeStatus === "inactive" ? "bg-white/20 text-white" : "bg-white text-blue-700"
-                }`}
-              >
-                {statusCounts.inactive}
-              </span>
-            </button>
+              <label className="inline-flex h-10 min-w-[180px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</span>
+                <select
+                  value={statusFilter}
+                  onChange={(event) =>
+                    onStatusFilterChange(event.target.value as "all" | ProductStatus)
+                  }
+                  className="w-full bg-transparent text-sm text-slate-700 outline-none"
+                  aria-label="Filter status produk"
+                >
+                  <option value="all">Semua</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="draft">Draft</option>
+                </select>
+              </label>
+            </div>
           </div>
         </div>
 
@@ -153,7 +104,7 @@ export default function ProductTable({
             <colgroup>
               <col className="w-[88px]" />
               <col />
-              <col className="w-[210px]" />
+              <col className="w-[280px]" />
               <col className="w-[190px]" />
             </colgroup>
             <thead>
@@ -165,7 +116,7 @@ export default function ProductTable({
                   Nama Produk
                 </th>
                 <th className="border-b border-gray-100 px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Status
+                  Status & Featured
                 </th>
                 <th className="border-b border-gray-100 px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Actions
@@ -186,21 +137,21 @@ export default function ProductTable({
                       </div>
                     </td>
                     <td className="border-b border-gray-100 px-3 py-4">
-                      <div className="h-7 w-16 animate-pulse rounded-full bg-slate-200" />
+                      <div className="mx-auto h-16 w-52 animate-pulse rounded-xl bg-slate-200" />
                     </td>
                     <td className="border-b border-gray-100 px-3 py-4 text-right">
                       <div className="ml-auto h-8 w-8 animate-pulse rounded-full bg-slate-200" />
                     </td>
                   </tr>
                 ))
-              ) : filteredProducts.length === 0 ? (
+              ) : products.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-3 py-12 text-center text-sm text-slate-500">
                     Tidak ada produk yang sesuai filter atau pencarian.
                   </td>
                 </tr>
               ) : (
-                filteredProducts.map((product) => (
+                products.map((product) => (
                   <Fragment key={product.id}>
                     <ProductTableRow
                       product={product}
@@ -213,6 +164,10 @@ export default function ProductTable({
                       onActionOpenChange={(open) => {
                         setOpenActionId(open ? product.id : null);
                       }}
+                      onToggleFeatured={onToggleFeatured}
+                      onToggleStatus={onToggleStatus}
+                      isFeaturedUpdating={Boolean(updatingFeaturedIds?.[product.id])}
+                      isStatusUpdating={Boolean(updatingStatusIds?.[product.id])}
                     />
                   </Fragment>
                 ))
@@ -295,3 +250,4 @@ export default function ProductTable({
     </>
   );
 }
+

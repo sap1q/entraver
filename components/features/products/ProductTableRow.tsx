@@ -1,11 +1,12 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, Globe, ShoppingBag } from "lucide-react";
+import { ChevronDown, Flame, Globe, Loader2, ShoppingBag, Star } from "lucide-react";
 import JurnalSyncButton from "@/components/features/integrations/JurnalSyncButton";
 import ProductActions from "@/components/features/products/ProductActions";
 
-export type ProductStatus = "active" | "pending" | "inactive";
+export type ProductStatus = "active" | "inactive" | "draft";
+export type ProductStockStatus = "in_stock" | "out_of_stock" | "preorder";
 
 type VariantPricingRow = {
   sku: string;
@@ -29,6 +30,8 @@ export interface ProductTableRowProduct {
   };
   photo: string;
   status: ProductStatus;
+  stock_status: ProductStockStatus;
+  is_featured: boolean;
   platforms: Array<"web" | "tiktok">;
   variant_pricing?: VariantPricingRow[];
 }
@@ -42,18 +45,34 @@ interface ProductTableRowProps {
   isActionOpen: boolean;
   onActionOpenChange: (open: boolean) => void;
   onJurnalSyncComplete: () => void | Promise<void>;
+  onToggleFeatured: (product: ProductTableRowProduct) => void | Promise<void>;
+  onToggleStatus: (product: ProductTableRowProduct) => void | Promise<void>;
+  isFeaturedUpdating?: boolean;
+  isStatusUpdating?: boolean;
 }
 
 const statusStyle: Record<ProductStatus, string> = {
   active: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  pending: "border-amber-200 bg-amber-50 text-amber-700",
   inactive: "border-slate-200 bg-slate-50 text-slate-600",
+  draft: "border-amber-200 bg-amber-50 text-amber-700",
 };
 
 const statusLabel: Record<ProductStatus, string> = {
   active: "Aktif",
-  pending: "Menunggu",
   inactive: "Non Aktif",
+  draft: "Draft",
+};
+
+const stockStatusStyle: Record<ProductStockStatus, string> = {
+  in_stock: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  out_of_stock: "border-rose-200 bg-rose-50 text-rose-700",
+  preorder: "border-sky-200 bg-sky-50 text-sky-700",
+};
+
+const stockStatusLabel: Record<ProductStockStatus, string> = {
+  in_stock: "In Stock",
+  out_of_stock: "Out of Stock",
+  preorder: "Preorder",
 };
 
 const currencyFormatter = new Intl.NumberFormat("id-ID");
@@ -81,6 +100,40 @@ const variantItem = {
   },
 };
 
+type InlineSwitchProps = {
+  checked: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+  ariaLabel: string;
+};
+
+function InlineSwitch({ checked, disabled, onToggle, ariaLabel }: InlineSwitchProps) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
+        checked
+          ? "border-blue-500 bg-blue-600"
+          : "border-slate-300 bg-slate-200"
+      } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition ${
+          checked ? "translate-x-5" : "translate-x-0.5"
+        }`}
+      />
+    </button>
+  );
+}
+
 export default function ProductTableRow({
   product,
   onEdit,
@@ -90,12 +143,22 @@ export default function ProductTableRow({
   isActionOpen,
   onActionOpenChange,
   onJurnalSyncComplete,
+  onToggleFeatured,
+  onToggleStatus,
+  isFeaturedUpdating = false,
+  isStatusUpdating = false,
 }: ProductTableRowProps) {
+  const rowStateClass = product.is_featured
+    ? "bg-amber-50/50 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.35),0_0_16px_rgba(251,191,36,0.15)]"
+    : isExpanded
+      ? "bg-blue-50/70"
+      : "hover:bg-slate-50/80";
+
   return (
     <>
       <tr
         onClick={() => onToggleExpand(product.id)}
-        className={`cursor-pointer transition ${isExpanded ? "bg-blue-50/70" : "hover:bg-slate-50/80"}`}
+        className={`cursor-pointer transition ${rowStateClass}`}
       >
         <td className="border-b border-gray-100 px-3 py-4 align-top">
           <div className="relative h-12 w-12 overflow-hidden rounded-lg border border-gray-100 bg-white">
@@ -116,7 +179,15 @@ export default function ProductTableRow({
 
         <td className="border-b border-gray-100 px-3 py-4 align-top">
           <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-semibold text-slate-800">{product.name}</p>
+            <p className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <span>{product.name}</span>
+              {product.is_featured ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                  <Flame className="h-3 w-3" />
+                  Featured
+                </span>
+              ) : null}
+            </p>
             <motion.span
               initial={false}
               animate={{ rotate: isExpanded ? 180 : 0 }}
@@ -132,22 +203,62 @@ export default function ProductTableRow({
         </td>
 
         <td className="border-b border-gray-100 px-3 py-4 align-middle">
-          <div className="flex items-center justify-center gap-2">
-            <span
-              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusStyle[product.status]}`}
-            >
-              {statusLabel[product.status]}
-            </span>
-            {product.platforms.includes("web") ? (
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600">
-                <Globe className="h-4 w-4" />
+          <div className="mx-auto flex max-w-[220px] flex-col items-center gap-2">
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusStyle[product.status]}`}
+              >
+                {statusLabel[product.status]}
               </span>
-            ) : null}
-            {product.platforms.includes("tiktok") ? (
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700">
-                <ShoppingBag className="h-4 w-4" />
+              <span
+                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${stockStatusStyle[product.stock_status]}`}
+              >
+                {stockStatusLabel[product.stock_status]}
               </span>
-            ) : null}
+            </div>
+
+            <div className="w-full rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2">
+              <div className="flex items-center justify-between text-[11px] font-medium text-slate-600">
+                <span>Status Aktif</span>
+                <div className="flex items-center gap-1">
+                  {isStatusUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" /> : null}
+                  <InlineSwitch
+                    checked={product.status === "active"}
+                    disabled={isStatusUpdating}
+                    onToggle={() => onToggleStatus(product)}
+                    ariaLabel={`Toggle status produk ${product.name}`}
+                  />
+                </div>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-[11px] font-medium text-slate-600">
+                <span className="inline-flex items-center gap-1">
+                  <Star className="h-3.5 w-3.5 text-amber-500" />
+                  Featured
+                </span>
+                <div className="flex items-center gap-1">
+                  {isFeaturedUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" /> : null}
+                  <InlineSwitch
+                    checked={product.is_featured}
+                    disabled={isFeaturedUpdating}
+                    onToggle={() => onToggleFeatured(product)}
+                    ariaLabel={`Toggle featured produk ${product.name}`}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-2">
+              {product.platforms.includes("web") ? (
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600">
+                  <Globe className="h-4 w-4" />
+                </span>
+              ) : null}
+              {product.platforms.includes("tiktok") ? (
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700">
+                  <ShoppingBag className="h-4 w-4" />
+                </span>
+              ) : null}
+            </div>
           </div>
         </td>
 
@@ -251,3 +362,4 @@ export default function ProductTableRow({
     </>
   );
 }
+

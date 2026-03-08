@@ -4,8 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronsUpDown, Loader2, Plus } from "lucide-react";
 import api, { isAxiosError } from "@/lib/axios";
+import { patchProductStatus } from "@/lib/api/product";
 import { useDebounce } from "@/src/hooks/useDebounce";
 import ProductTable, { type ProductTableProduct } from "@/components/features/products/ProductTable";
+
+type ProductVisibilityStatus = "active" | "inactive" | "draft";
+type ProductStockStatus = "in_stock" | "out_of_stock" | "preorder";
 
 type ApiVariantPricingRow = Record<string, unknown>;
 type ApiPhoto = string | { url?: string | null; is_primary?: boolean | null } | null;
@@ -16,6 +20,9 @@ type ApiProduct = {
   brand?: string | null;
   spu?: string | null;
   status?: string | null;
+  product_status?: string | null;
+  stock_status?: string | null;
+  is_featured?: boolean | null;
   jurnal_id?: string | null;
   jurnal_metadata?: unknown;
   main_image?: string | null;
@@ -97,10 +104,19 @@ const parsePrice = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const normalizeStatus = (status: string | null | undefined): ProductTableProduct["status"] => {
-  if (status === "pending" || status === "pending_approval") return "pending";
-  if (status === "inactive") return "inactive";
+const normalizeStatus = (status: string | null | undefined): ProductVisibilityStatus => {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  if (normalized === "inactive") return "inactive";
+  if (normalized === "draft" || normalized === "pending" || normalized === "pending_approval") return "draft";
   return "active";
+};
+
+const normalizeStockStatus = (stockStatus: string | null | undefined, stock: number): ProductStockStatus => {
+  const normalized = String(stockStatus ?? "").trim().toLowerCase();
+  if (normalized === "preorder") return "preorder";
+  if (normalized === "out_of_stock") return "out_of_stock";
+  if (normalized === "in_stock") return "in_stock";
+  return stock > 0 ? "in_stock" : "out_of_stock";
 };
 
 const resolveJurnalArchived = (metadata: unknown): boolean => {
@@ -152,6 +168,9 @@ const mapApiProduct = (product: ApiProduct): ProductTableProduct => {
     };
   });
 
+  const totalStock = product.inventory?.total_stock ?? normalizedVariants.reduce((sum, item) => sum + item.stock, 0);
+  const status = normalizeStatus(product.status ?? product.product_status);
+
   return {
     id: product.id,
     name: product.name,
@@ -160,19 +179,18 @@ const mapApiProduct = (product: ApiProduct): ProductTableProduct => {
     jurnal_id: product.jurnal_id ?? null,
     jurnal_archived: resolveJurnalArchived(product.jurnal_metadata),
     inventory: {
-      total_stock: product.inventory?.total_stock ?? normalizedVariants.reduce((sum, item) => sum + item.stock, 0),
+      total_stock: totalStock,
     },
     photo: resolvePrimaryPhoto(product),
-    status: normalizeStatus(product.status),
+    status,
+    stock_status: normalizeStockStatus(product.stock_status, totalStock),
+    is_featured: Boolean(product.is_featured),
     platforms: ["web", "tiktok"],
     variant_pricing: normalizedVariants,
   };
 };
 
-const resolveProductsEndpoint = (): string => {
-  const base = String(api.defaults.baseURL ?? "").toLowerCase();
-  return base.endsWith("/v1") || base.includes("/api/v1") ? "/products" : "/v1/products";
-};
+const resolveProductsEndpoint = (): string => "/v1/admin/products";
 
 const extractProductsFromPayload = (payload: unknown): ApiProduct[] => {
   if (Array.isArray(payload)) {
@@ -283,6 +301,7 @@ const buildFetchErrorState = (error: unknown): FetchErrorState => {
 export default function MasterProdukPage() {
   const [products, setProducts] = useState<ProductTableProduct[]>([]);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | ProductVisibilityStatus>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [errorState, setErrorState] = useState<FetchErrorState | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
@@ -292,6 +311,9 @@ export default function MasterProdukPage() {
   const [perPage, setPerPage] = useState(MASTER_PRODUCT_PAGE_SIZE);
   const [mappingJurnal, setMappingJurnal] = useState(false);
   const [mappingMessage, setMappingMessage] = useState<string | null>(null);
+  const [quickStatusMessage, setQuickStatusMessage] = useState<string | null>(null);
+  const [updatingStatusIds, setUpdatingStatusIds] = useState<Record<string, boolean>>({});
+  const [updatingFeaturedIds, setUpdatingFeaturedIds] = useState<Record<string, boolean>>({});
   const debouncedSearch = useDebounce(search, 500);
 
   useEffect(() => {
@@ -305,11 +327,9 @@ export default function MasterProdukPage() {
         const response = await api.get(resolveProductsEndpoint(), {
           params: {
             search: debouncedSearch || undefined,
+            status: statusFilter === "all" ? undefined : statusFilter,
             page: currentPage,
             per_page: MASTER_PRODUCT_PAGE_SIZE,
-            only_active: true,
-            exclude_failed_sync: true,
-            only_sync_activated: true,
           },
           signal: controller.signal,
         });
@@ -353,21 +373,91 @@ export default function MasterProdukPage() {
       }
     };
 
-    fetchProducts();
+    void fetchProducts();
 
     return () => {
       stillMounted = false;
       controller.abort();
     };
-  }, [currentPage, debouncedSearch, reloadTick]);
+  }, [currentPage, debouncedSearch, reloadTick, statusFilter]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, statusFilter]);
 
   const refreshProducts = useCallback(() => {
     setReloadTick((prev) => prev + 1);
   }, []);
+
+  const mergeUpdatedProduct = useCallback((payload: Record<string, unknown> | null) => {
+    if (!payload || typeof payload !== "object") return;
+    const mapped = mapApiProduct(payload as unknown as ApiProduct);
+    setProducts((prev) => prev.map((item) => (item.id === mapped.id ? { ...item, ...mapped } : item)));
+  }, []);
+
+  const handleToggleFeatured = useCallback(
+    async (product: ProductTableProduct) => {
+      const nextValue = !product.is_featured;
+      const previous = product;
+      setQuickStatusMessage(null);
+
+      setUpdatingFeaturedIds((prev) => ({ ...prev, [product.id]: true }));
+      setProducts((prev) =>
+        prev.map((item) =>
+          item.id === product.id ? { ...item, is_featured: nextValue } : item
+        )
+      );
+
+      try {
+        const updated = await patchProductStatus(product.id, { is_featured: nextValue });
+        mergeUpdatedProduct(updated);
+      } catch (error) {
+        setProducts((prev) => prev.map((item) => (item.id === product.id ? previous : item)));
+        setQuickStatusMessage(
+          error instanceof Error ? error.message : "Gagal memperbarui status featured."
+        );
+      } finally {
+        setUpdatingFeaturedIds((prev) => {
+          const next = { ...prev };
+          delete next[product.id];
+          return next;
+        });
+      }
+    },
+    [mergeUpdatedProduct]
+  );
+
+  const handleToggleStatus = useCallback(
+    async (product: ProductTableProduct) => {
+      const nextStatus: ProductVisibilityStatus = product.status === "active" ? "inactive" : "active";
+      const previous = product;
+      setQuickStatusMessage(null);
+
+      setUpdatingStatusIds((prev) => ({ ...prev, [product.id]: true }));
+      setProducts((prev) =>
+        prev.map((item) =>
+          item.id === product.id ? { ...item, status: nextStatus } : item
+        )
+      );
+
+      try {
+        const updated = await patchProductStatus(product.id, { status: nextStatus });
+        mergeUpdatedProduct(updated);
+      } catch (error) {
+        setProducts((prev) => prev.map((item) => (item.id === product.id ? previous : item)));
+        setQuickStatusMessage(
+          error instanceof Error ? error.message : "Gagal memperbarui status produk."
+        );
+      } finally {
+        setUpdatingStatusIds((prev) => {
+          const next = { ...prev };
+          delete next[product.id];
+          return next;
+        });
+      }
+    },
+    [mergeUpdatedProduct]
+  );
 
   const handleMapJurnalProducts = useCallback(async () => {
     setMappingJurnal(true);
@@ -412,7 +502,7 @@ export default function MasterProdukPage() {
           <div>
             <h1 className="text-2xl font-semibold text-slate-800">Produk</h1>
             <p className="mt-1 text-sm text-slate-500">
-              Kelola katalog produk Anda, atur trade-in, dan sinkronisasi stok.
+              Kelola katalog produk Anda, atur visibilitas produk, dan tandai produk unggulan.
             </p>
             <p className="mt-2 text-sm text-slate-600">
               Terakhir disinkronisasi Mekari Jurnal pada{" "}
@@ -443,6 +533,9 @@ export default function MasterProdukPage() {
         {mappingMessage ? (
           <p className="mt-3 text-xs text-slate-600">{mappingMessage}</p>
         ) : null}
+        {quickStatusMessage ? (
+          <p className="mt-2 text-xs text-rose-600">{quickStatusMessage}</p>
+        ) : null}
       </section>
 
       <ProductTable
@@ -451,9 +544,12 @@ export default function MasterProdukPage() {
         search={search}
         onSearchChange={setSearch}
         onRefresh={refreshProducts}
-        statusSummary={{
-          active: totalProducts,
-        }}
+        statusFilter={statusFilter}
+        onStatusFilterChange={(value) => setStatusFilter(value)}
+        onToggleFeatured={handleToggleFeatured}
+        onToggleStatus={handleToggleStatus}
+        updatingFeaturedIds={updatingFeaturedIds}
+        updatingStatusIds={updatingStatusIds}
         pagination={{
           currentPage,
           lastPage,
