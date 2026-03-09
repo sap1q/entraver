@@ -38,7 +38,7 @@ const appendCandidate = (target: string[], value: string | null | undefined) => 
 };
 
 export default function CategoryCard({ category, overlay, className }: CategoryCardProps) {
-  const href = `/products/${encodeURIComponent(category.slug)}`;
+  const href = `/products?category=${encodeURIComponent(category.slug)}`;
   const categorySignature = `${category.id}|${category.imageUrl ?? ""}|${category.imageSvg ?? ""}`;
   const imageCandidates = useMemo(() => {
     const candidates: string[] = [];

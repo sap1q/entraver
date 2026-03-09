@@ -122,6 +122,78 @@ export interface Product {
   free_shipping?: boolean;
   stock: number;
   specs?: Record<string, string | number>;
+  stock_status?: "in_stock" | "low_stock" | "out_of_stock";
+  warranty?: string;
+  variants?: ProductVariantGroup[];
+  trade_in?: boolean;
+}
+
+export interface ProductVariantGroup {
+  name: string;
+  options: string[];
+}
+
+export interface ProductReviewDistribution {
+  5: number;
+  4: number;
+  3: number;
+  2: number;
+  1: number;
+}
+
+export interface ProductReviewSummary {
+  average_rating: number;
+  total_count: number;
+  distribution: ProductReviewDistribution;
+}
+
+export interface ProductDetail extends Product {
+  gallery: string[];
+  description: string;
+  specifications: Record<string, string>;
+  weight: number;
+  dimensions?: {
+    length: number;
+    width: number;
+    height: number;
+  };
+  barcode?: string;
+  sku: string;
+  stock_status: "in_stock" | "low_stock" | "out_of_stock";
+  min_order?: number;
+  max_order?: number;
+  reviews_summary: ProductReviewSummary;
+}
+
+export interface ProductReview {
+  id: string;
+  user: {
+    name: string;
+    avatar?: string;
+  };
+  rating: number;
+  comment: string;
+  photos?: string[];
+  created_at: string;
+  variant?: string;
+}
+
+export interface ProductReviewQuery {
+  page?: number;
+  sort?: "newest" | "highest" | "lowest";
+  with_photos?: boolean;
+}
+
+export interface ProductReviewResponse {
+  success: boolean;
+  data: ProductReview[];
+  meta: {
+    current_page: number;
+    last_page: number;
+    total: number;
+    per_page: number;
+    summary: ProductReviewSummary;
+  };
 }
 
 export interface ProductFilters {
