@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import {
   Bold,
   Eraser,
@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { normalizeDescriptionHtml } from "@/lib/description";
+import { normalizeDescriptionHtml, toDescriptionHtml } from "@/lib/description";
 
 type DescriptionEditorProps = {
   value: string;
@@ -29,9 +29,11 @@ const toolbarWideButtonBase =
   "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-800";
 
 export default function DescriptionEditor({ value, onChange }: DescriptionEditorProps) {
+  const normalizedValue = useMemo(() => toDescriptionHtml(value || ""), [value]);
+
   const editor = useEditor({
     extensions: [StarterKit],
-    content: value || "<p></p>",
+    content: normalizedValue,
     editorProps: {
       attributes: {
         class:
@@ -46,14 +48,14 @@ export default function DescriptionEditor({ value, onChange }: DescriptionEditor
 
   useEffect(() => {
     if (!editor) return;
-    if (editor.getHTML() === value) return;
-    editor.commands.setContent(value || "<p></p>", false);
-  }, [editor, value]);
+    if (editor.getHTML() === normalizedValue) return;
+    editor.commands.setContent(normalizedValue, { emitUpdate: false });
+  }, [editor, normalizedValue]);
 
   const handleTidy = () => {
     if (!editor) return;
     const normalized = normalizeDescriptionHtml(editor.getHTML());
-    editor.commands.setContent(normalized, false);
+    editor.commands.setContent(normalized, { emitUpdate: false });
     onChange(normalized);
   };
 

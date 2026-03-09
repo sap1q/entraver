@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import ProductForm from "@/components/features/products/ProductForm";
-import { useProduct, type ProductDetail } from "@/hooks/useProduct";
+import { useProduct, type ProductDetail } from "@/hooks/useProductAdmin";
 import { useProductForm } from "@/hooks/useProductForm";
 import { useProductSubmit } from "@/hooks/useProductSubmit";
 import { calculateFinalBeli, DEFAULT_MATRIX_ROW } from "@/lib/utils";
@@ -512,3 +512,4 @@ export default function EditProductPage() {
     </div>
   );
 }
+

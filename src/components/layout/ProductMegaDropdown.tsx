@@ -3,10 +3,10 @@
 import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, Flame, Sparkles, Tag } from "lucide-react";
+import { ArrowRight, Flame, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { productsApi } from "@/lib/api/products";
-import type { Brand, Category, Product } from "@/types/product.types";
+import type { Category, Product } from "@/types/product.types";
 
 type ProductBadge = "BARU" | "HOT";
 
@@ -88,7 +88,6 @@ export function ProductMegaDropdown({
   onClose,
 }: ProductMegaDropdownProps) {
   const [categories, setCategories] = useState<Category[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
   const [highlights, setHighlights] = useState<HighlightProduct[]>([]);
   const [activeCategorySlug, setActiveCategorySlug] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,9 +101,8 @@ export function ProductMegaDropdown({
       setError(null);
 
       try {
-        const [categoryResponse, brandResponse, newestResponse, hottestResponse] = await Promise.all([
+        const [categoryResponse, newestResponse, hottestResponse] = await Promise.all([
           productsApi.getCategories(),
-          productsApi.getBrands(),
           productsApi.getProducts({ per_page: 8, sort_by: "newest" }),
           productsApi.getProducts({ per_page: 8, sort_by: "popular" }),
         ]);
@@ -112,7 +110,6 @@ export function ProductMegaDropdown({
         if (!mounted) return;
 
         const fetchedCategories = categoryResponse.data;
-        const fetchedBrands = brandResponse.data;
         const highlightedProducts = makeHighlights(newestResponse.data, hottestResponse.data);
         const fallbackCategories = highlightedProducts
           .map((item) => item.product.category)
@@ -130,7 +127,6 @@ export function ProductMegaDropdown({
           fetchedCategories.length > 0 ? fetchedCategories : fallbackCategories;
 
         setCategories(categoriesForMenu);
-        setBrands(fetchedBrands);
         setHighlights(highlightedProducts);
 
         setActiveCategorySlug((prev) => {
@@ -141,7 +137,6 @@ export function ProductMegaDropdown({
         if (!mounted) return;
         setError("Gagal memuat menu produk.");
         setCategories([]);
-        setBrands([]);
         setHighlights([]);
         console.error(fetchError);
       } finally {
@@ -169,8 +164,6 @@ export function ProductMegaDropdown({
     return (filtered.length > 0 ? filtered : highlights).slice(0, 6);
   }, [activeCategorySlug, highlights]);
 
-  const topBrands = useMemo(() => brands.slice(0, 3), [brands]);
-
   const handleCategoryActivate = useCallback((slug: string) => {
     setActiveCategorySlug((previous) => (previous === slug ? previous : slug));
   }, []);
@@ -188,7 +181,7 @@ export function ProductMegaDropdown({
           onMouseLeave={onMouseLeave}
         >
           <div className="mx-auto w-full max-w-7xl px-4 md:px-6">
-            <div className="grid gap-6 py-6 lg:grid-cols-[250px_1fr_280px]">
+            <div className="grid gap-6 py-6 lg:grid-cols-[250px_1fr]">
               <aside className="border-r border-slate-200 pr-5">
                 <p className="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
                   Kategori
@@ -322,41 +315,6 @@ export function ProductMegaDropdown({
                   </AnimatePresence>
                 )}
               </section>
-
-              <aside className="overflow-hidden rounded-2xl bg-[linear-gradient(155deg,#030712_0%,#0f172a_55%,#7f1d1d_100%)] p-5 text-white shadow-lg">
-                <span className="inline-flex rounded-full bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-100">
-                  Penawaran Terbatas
-                </span>
-                <h4 className="mt-4 text-3xl font-bold leading-tight">
-                  Special <span className="text-rose-400">Promo</span>
-                </h4>
-                <p className="mt-2 text-sm text-slate-200">
-                  Diskon hingga 40% untuk gadget pilihan dan smart home series minggu ini.
-                </p>
-
-                {topBrands.length > 0 ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {topBrands.map((brand) => (
-                      <span
-                        key={brand.id}
-                        className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-xs text-slate-100"
-                      >
-                        <Tag className="h-3 w-3" />
-                        {brand.name}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-
-                <Link
-                  href="/products?sort=newest"
-                  onClick={onClose}
-                  className="mt-6 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
-                >
-                  Belanja Sekarang
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </aside>
             </div>
           </div>
         </motion.div>
