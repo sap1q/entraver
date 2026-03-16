@@ -79,7 +79,7 @@ export function BannerCard({ banner, isFirst = false }: BannerCardProps) {
   };
 
   const premiumContent = (
-    <section className="relative isolate aspect-[16/10] w-full overflow-hidden bg-slate-100 sm:aspect-[16/9]">
+    <section className="relative isolate aspect-[2/1] w-full overflow-hidden bg-slate-100">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_44%,rgba(147,197,253,0.42),rgba(226,232,240,0.9)_52%,rgba(241,245,249,0.98)_82%)]" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/70 to-transparent" />
 
@@ -155,7 +155,7 @@ export function BannerCard({ banner, isFirst = false }: BannerCardProps) {
       {isRayBanMetaSlide ? (
         premiumContent
       ) : (
-        <div className="relative aspect-[16/10] w-full overflow-hidden bg-slate-100 sm:aspect-[16/9]">
+        <div className="relative aspect-[2/1] w-full overflow-hidden bg-slate-100">
           <picture>
             {useWebpSource && sources.webp ? <source srcSet={sources.webp} type="image/webp" /> : null}
             <img

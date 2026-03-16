@@ -70,6 +70,11 @@ const productCardMotion = {
   },
 } as const;
 
+const SERVICE_LINKS = [
+  { label: "Trade-In", href: "/trade-in" },
+  { label: "Garansi", href: "/garansi" },
+] as const;
+
 const makeHighlights = (newest: Product[], hottest: Product[]): HighlightProduct[] => {
   const fresh = newest.slice(0, 4).map((product) => ({ product, badge: "BARU" as const }));
   const taken = new Set(fresh.map((item) => item.product.id));
@@ -101,11 +106,14 @@ export function ProductMegaDropdown({
       setError(null);
 
       try {
-        const [categoryResponse, newestResponse, hottestResponse] = await Promise.all([
-          productsApi.getCategories(),
-          productsApi.getProducts({ per_page: 8, sort_by: "newest" }),
-          productsApi.getProducts({ per_page: 8, sort_by: "popular" }),
-        ]);
+        // Avoid parallel requests here because the local Laravel dev server can serialize them.
+        const categoryResponse = await productsApi.getCategories();
+        if (!mounted) return;
+
+        const newestResponse = await productsApi.getProducts({ per_page: 8, sort_by: "newest" });
+        if (!mounted) return;
+
+        const hottestResponse = await productsApi.getProducts({ per_page: 8, sort_by: "popular" });
 
         if (!mounted) return;
 
@@ -183,6 +191,27 @@ export function ProductMegaDropdown({
           <div className="mx-auto w-full max-w-7xl px-4 md:px-6">
             <div className="grid gap-6 py-6 lg:grid-cols-[250px_1fr]">
               <aside className="border-r border-slate-200 pr-5">
+                <div className="mb-5 border-b border-slate-200 pb-5">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                    Layanan &amp; Jasa
+                  </p>
+
+                  <ul className="space-y-1">
+                    {SERVICE_LINKS.map((item) => (
+                      <li key={item.href}>
+                        <Link
+                          href={item.href}
+                          onClick={onClose}
+                          className="group relative flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-100 hover:text-slate-900"
+                        >
+                          <span>{item.label}</span>
+                          <ArrowRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-0.5" />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
                 <p className="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
                   Kategori
                 </p>

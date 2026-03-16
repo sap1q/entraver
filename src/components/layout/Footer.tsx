@@ -1,19 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
 
-const paymentLogos = [
-  { src: "/assets/images/logo/midtrans/bca-va.png", alt: "BCA Virtual Account" },
-  { src: "/assets/images/logo/midtrans/bni-va.png", alt: "BNI Virtual Account" },
-  { src: "/assets/images/logo/midtrans/bri-va.png", alt: "BRI Virtual Account" },
-  { src: "/assets/images/logo/midtrans/mandiri-va.png", alt: "Mandiri Bill Payment" },
-  { src: "/assets/images/logo/midtrans/permata-va.png", alt: "Permata Virtual Account" },
-  { src: "/assets/images/logo/midtrans/visa.png", alt: "Visa" },
-  { src: "/assets/images/logo/midtrans/mastercard.png", alt: "Mastercard" },
-  { src: "/assets/images/logo/midtrans/gopay.png", alt: "GoPay" },
-  { src: "/assets/images/logo/midtrans/shopeepay.png", alt: "ShopeePay" },
-  { src: "/assets/images/logo/midtrans/qris.png", alt: "QRIS" },
-];
-
 const socialIcons = [
   "/assets/images/icons/instagram.svg",
   "/assets/images/icons/tiktok.svg",
@@ -32,7 +19,7 @@ export function Footer() {
               alt="Entraverse"
               width={190}
               height={44}
-              className="h-11 w-auto"
+              className="h-11 w-[190px] object-contain"
             />
             <p className="mt-3 max-w-sm text-base text-slate-600">
               Solusi omnicommerce untuk pengadaan hingga penjualan di satu tempat.
@@ -85,7 +72,7 @@ export function Footer() {
             alt="Secure Checkout SSL"
             width={184}
             height={32}
-            className="h-8 w-auto"
+            className="h-8 w-[184px] object-contain"
           />
         </div>
       </div>

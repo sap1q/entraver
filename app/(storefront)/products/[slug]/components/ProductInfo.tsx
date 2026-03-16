@@ -6,11 +6,12 @@ import type { ProductDetail } from "@/types/product.types";
 
 interface ProductInfoProps {
   product: ProductDetail;
+  selectedPrice: number;
   selectedVariants: Record<string, string>;
   onVariantChange: (groupName: string, option: string) => void;
 }
 
-export const ProductInfo = ({ product, selectedVariants, onVariantChange }: ProductInfoProps) => {
+export const ProductInfo = ({ product, selectedPrice, selectedVariants, onVariantChange }: ProductInfoProps) => {
   return (
     <section className="rounded-2xl border border-slate-100 bg-slate-50/40 p-5">
       <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-orange-700">
@@ -32,8 +33,8 @@ export const ProductInfo = ({ product, selectedVariants, onVariantChange }: Prod
       </div>
 
       <div className="mt-5 flex items-end gap-3">
-        <p className="text-3xl font-bold text-slate-900 md:text-4xl">{formatCurrencyIDR(product.price)}</p>
-        {typeof product.original_price === "number" && product.original_price > product.price ? (
+        <p className="text-3xl font-bold text-slate-900 md:text-4xl">{formatCurrencyIDR(selectedPrice)}</p>
+        {typeof product.original_price === "number" && product.original_price > selectedPrice ? (
           <p className="pb-1 text-base text-slate-400 line-through">{formatCurrencyIDR(product.original_price)}</p>
         ) : null}
       </div>

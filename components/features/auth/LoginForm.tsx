@@ -4,7 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 
@@ -14,6 +14,7 @@ export default function LoginForm() {
   const { login, isLoading, error, fieldErrors } = useAuth();
   const { toast, toasts } = useToast();
   const [form, setForm] = useState({ email: "", password: "", remember: false });
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -71,14 +72,24 @@ export default function LoginForm() {
 
             <label htmlFor="password" className="block space-y-1.5">
               <span className="text-sm font-medium text-slate-700">Kata Sandi</span>
-              <input
-                id="password"
-                type="password"
-                value={form.password}
-                onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 outline-none transition focus:border-sky-500"
-                autoComplete="current-password"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={form.password}
+                  onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 pr-10 text-slate-900 outline-none transition focus:border-sky-500"
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((previous) => !previous)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 transition-colors hover:text-slate-700"
+                  aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               {fieldErrors.password?.[0] ? (
                 <span className="text-xs text-rose-600">{fieldErrors.password[0]}</span>
               ) : null}
@@ -104,7 +115,7 @@ export default function LoginForm() {
 
           <p className="mt-6 text-center text-sm text-slate-600">
             Belum punya akun?{" "}
-            <Link href="/register" className="font-semibold text-sky-600 hover:underline">
+            <Link href="/auth/register" className="font-semibold text-sky-600 hover:underline">
               Daftar
             </Link>
           </p>

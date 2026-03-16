@@ -19,6 +19,7 @@ const emptyFees = (): CategoryFees => ({
   marketplace: { components: [] },
   shopee: { components: [] },
   entraverse: { components: [] },
+  tokopedia: { components: [] },
   tokopedia_tiktok: { components: [] },
 });
 
@@ -45,7 +46,7 @@ const useDebouncedValue = <T,>(value: T, delay = 400): T => {
 
 const categoryToForm = (category: Category): CategoryFormValues => ({
   name: category.name,
-  min_margin: category.min_margin,
+  min_margin: category.margin_percent ?? category.min_margin,
   program_garansi:
     typeof category.program_garansi === "string"
       ? category.program_garansi
@@ -211,7 +212,8 @@ export function useCategories(initialParams: CategoryListParams = {}) {
     try {
       await categoryApi.create({
         name: `${category.name} (Copy)`,
-        min_margin: category.min_margin,
+        margin_percent: category.margin_percent ?? category.min_margin,
+        min_margin: category.margin_percent ?? category.min_margin,
         program_garansi:
           typeof category.program_garansi === "string"
             ? category.program_garansi
@@ -379,6 +381,7 @@ export function useCategoryForm(args?: { id?: string; initialCategory?: Category
     try {
       const payload = {
         name: values.name,
+        margin_percent: values.min_margin,
         min_margin: values.min_margin,
         program_garansi: values.program_garansi,
         fees: values.fees,
@@ -506,7 +509,7 @@ export function useCategoryOptions() {
         value: category.id,
         label: category.name,
         icon: category.icon ?? category.icon_url ?? category.icon_svg ?? null,
-        min_margin: category.min_margin,
+        min_margin: category.margin_percent ?? category.min_margin,
       })),
     [categories]
   );

@@ -150,7 +150,9 @@ export const ProductReviews = ({ productId, initialSummary }: ProductReviewsProp
         <div className="mt-8 space-y-6">
           {filteredReviews.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">
-              Belum ada ulasan dengan filter yang dipilih.
+              {reviews.length === 0
+                ? "Belum ada ulasan untuk produk ini."
+                : "Belum ada ulasan dengan filter yang dipilih."}
             </div>
           ) : (
             filteredReviews.map((review) => (

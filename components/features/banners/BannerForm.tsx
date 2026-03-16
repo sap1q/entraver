@@ -143,14 +143,14 @@ export function BannerForm({
             />
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            Gunakan gambar landscape resolusi tinggi (16:7). Minimal 1600x700 px.
+            Gunakan gambar dengan dimensi tepat 6912x3456 px agar tampil proporsional di storefront.
           </p>
         </div>
 
         {previewUrl ? (
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+          <div className="aspect-[2/1] overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={previewUrl} alt="Preview banner" className="h-44 w-full object-cover" />
+            <img src={previewUrl} alt="Preview banner" className="h-full w-full object-cover" />
           </div>
         ) : null}
 

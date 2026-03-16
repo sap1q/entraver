@@ -39,6 +39,7 @@ export interface MatrixPricing {
   shipping: "Udara" | "Laut" | "Darat";
   shippingCost: number;
   arrivalCost: number;
+  marginPercent: number;
   offlinePrice: number;
   entraversePrice: number;
   tokopediaPrice: number;
@@ -66,6 +67,8 @@ export interface MatrixPricing {
   procurementStatus: "Normal" | "Low Stock" | "Out of Stock";
 }
 
+export type ShippingRates = Record<MatrixPricing["shipping"], number>;
+
 export interface PhotoSlot {
   file: File | null;
   preview: string;
@@ -89,6 +92,7 @@ export interface InventoryPlan {
   width: number;
   height: number;
   volume: number;
+  shippingRates: ShippingRates;
 }
 
 export interface ProductFormState {

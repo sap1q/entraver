@@ -23,15 +23,49 @@ const createComponent = (): FeeComponent => ({
   max: 0,
 });
 
+const rupiahFormatter = new Intl.NumberFormat("id-ID");
+
+const formatRupiahInput = (value: number | string | undefined): string =>
+  rupiahFormatter.format(Math.max(0, Number(value) || 0));
+
+const parseRupiahInput = (value: string): number => {
+  const digits = value.replace(/[^\d]/g, "");
+  if (!digits) return 0;
+  return Number(digits) || 0;
+};
+
+const normalizePercentInput = (value: string): string => {
+  const normalized = value.replace(",", ".").replace(/[^\d.-]/g, "");
+  if (!normalized || normalized === "-" || normalized === "." || normalized === "-.") {
+    return "";
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? String(parsed) : "";
+};
+
 export default function FeeComponents({ fees, onChange }: FeeComponentsProps) {
+  const syncMarketplaceAliases = (nextFees: CategoryFees): CategoryFees => {
+    const marketplaceComponents = nextFees.marketplace?.components ?? [];
+    const clonedComponents = marketplaceComponents.map((component) => ({ ...component }));
+
+    return {
+      ...nextFees,
+      tokopedia: { components: clonedComponents.map((component) => ({ ...component })) },
+      tokopedia_tiktok: { components: clonedComponents.map((component) => ({ ...component })) },
+    };
+  };
+
   const updateFee = (channel: keyof CategoryFees, updater: (items: FeeComponent[]) => FeeComponent[]) => {
     const current = fees[channel]?.components ?? [];
-    onChange({
+    const nextFees: CategoryFees = {
       ...fees,
       [channel]: {
         components: updater(current),
       },
-    });
+    };
+
+    onChange(channel === "marketplace" ? syncMarketplaceAliases(nextFees) : nextFees);
   };
 
   const updateField = (
@@ -77,40 +111,86 @@ export default function FeeComponents({ fees, onChange }: FeeComponentsProps) {
                   />
                   <select
                     value={item.valueType}
-                    onChange={(event) =>
-                      updateField(channel.key, index, "valueType", event.target.value as ValueType)
-                    }
+                    onChange={(event) => {
+                      const nextType = event.target.value as ValueType;
+                      const currentRaw = String(item.value ?? "");
+                      const nextValue =
+                        nextType === "amount"
+                          ? parseRupiahInput(currentRaw)
+                          : normalizePercentInput(currentRaw);
+
+                      updateFee(channel.key, (items) => {
+                        const base = items.length > 0 ? items : [createComponent()];
+                        return base.map((row, idx) =>
+                          idx === index
+                            ? { ...row, valueType: nextType, value: nextValue }
+                            : row
+                        );
+                      });
+                    }}
                     className="md:col-span-2 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
                     title="Pilih jenis nilai"
                   >
                     <option value="percent">%</option>
                     <option value="amount">Rp</option>
                   </select>
-                  <input
-                    value={String(item.value)}
-                    onChange={(event) => updateField(channel.key, index, "value", event.target.value)}
-                    className="md:col-span-2 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-                    placeholder="Nilai"
-                    title="Nilai biaya (persen atau rupiah)"
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    value={item.min ?? 0}
-                    onChange={(event) => updateField(channel.key, index, "min", Number(event.target.value) || 0)}
-                    className="md:col-span-1 h-10 rounded-lg border border-slate-200 bg-white px-2 text-sm"
-                    placeholder="Min"
-                    title="Batas minimum dalam Rupiah"
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    value={item.max ?? 0}
-                    onChange={(event) => updateField(channel.key, index, "max", Number(event.target.value) || 0)}
-                    className="md:col-span-1 h-10 rounded-lg border border-slate-200 bg-white px-2 text-sm"
-                    placeholder="Max"
-                    title="Batas maksimum dalam Rupiah"
-                  />
+                  <div className="relative md:col-span-2">
+                    {item.valueType === "amount" ? (
+                      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500">
+                        Rp
+                      </span>
+                    ) : null}
+                    <input
+                      type="text"
+                      inputMode={item.valueType === "amount" ? "numeric" : "decimal"}
+                      value={
+                        item.valueType === "amount"
+                          ? formatRupiahInput(item.value ?? 0)
+                          : String(item.value ?? "")
+                      }
+                      onChange={(event) => {
+                        if (item.valueType === "amount") {
+                          updateField(channel.key, index, "value", parseRupiahInput(event.target.value));
+                          return;
+                        }
+
+                        updateField(channel.key, index, "value", normalizePercentInput(event.target.value));
+                      }}
+                      className={`h-10 w-full rounded-lg border border-slate-200 bg-white text-sm ${
+                        item.valueType === "amount" ? "pl-8 pr-3" : "px-3"
+                      }`}
+                      placeholder={item.valueType === "amount" ? "Nilai Rp" : "Nilai %"}
+                      title="Nilai biaya (persen atau rupiah)"
+                    />
+                  </div>
+                  <div className="relative md:col-span-1">
+                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500">
+                      Rp
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={formatRupiahInput(item.min ?? 0)}
+                      onChange={(event) => updateField(channel.key, index, "min", parseRupiahInput(event.target.value))}
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-2 text-sm"
+                      placeholder="Min"
+                      title="Batas minimum biaya dalam Rupiah"
+                    />
+                  </div>
+                  <div className="relative md:col-span-1">
+                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500">
+                      Rp
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={formatRupiahInput(item.max ?? 0)}
+                      onChange={(event) => updateField(channel.key, index, "max", parseRupiahInput(event.target.value))}
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-2 text-sm"
+                      placeholder="Max"
+                      title="Batas maksimum biaya dalam Rupiah"
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => updateFee(channel.key, (items) => items.filter((_, idx) => idx !== index))}

@@ -1,58 +1,83 @@
 import axios, { isAxiosError } from "axios";
+import { getToken, removeToken, setToken } from "@/lib/utils/storage";
 
-const TOKEN_KEYS = ["entraverse_admin_token", "token", "admin_token"] as const;
+const TOKEN_COOKIE_KEYS = ["entraverse_admin_token", "token", "admin_token"] as const;
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+const API_ORIGIN = (() => {
+  try {
+    return new URL(API_BASE_URL).origin;
+  } catch {
+    return "http://127.0.0.1:8000";
+  }
+})();
+const CSRF_COOKIE_ENDPOINT = `${API_ORIGIN}/sanctum/csrf-cookie`;
+const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
+const BEARER_TOKEN_API_PATTERNS = [
+  "/v1/admin",
+  "/v1/integrations/jurnal",
+  "/user-addresses",
+  "/user/addresses",
+  "/shipping/cost",
+  "/checkout/process",
+  "/orders",
+];
 
-const getCookieValue = (key: string): string | null => {
-  if (typeof document === "undefined") return null;
-  const cookie = document.cookie
-    .split("; ")
-    .find((entry) => entry.startsWith(`${key}=`));
-  return cookie ? decodeURIComponent(cookie.split("=")[1] ?? "") : null;
+let csrfCookiePromise: Promise<void> | null = null;
+
+const usesBearerToken = (url: string): boolean => {
+  if (!url) return false;
+
+  return BEARER_TOKEN_API_PATTERNS.some((pattern) => url.includes(pattern));
+};
+
+const ensureCsrfCookie = async () => {
+  if (typeof window === "undefined") return;
+
+  if (!csrfCookiePromise) {
+    csrfCookiePromise = axios
+      .get(CSRF_COOKIE_ENDPOINT, {
+        withCredentials: true,
+        headers: {
+          Accept: "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      })
+      .then(() => undefined)
+      .finally(() => {
+        csrfCookiePromise = null;
+      });
+  }
+
+  await csrfCookiePromise;
 };
 
 export const getAuthToken = (): string | null => {
-  if (typeof window === "undefined") return null;
-
-  const local = TOKEN_KEYS
-    .map((key) => window.localStorage.getItem(key))
-    .find((value) => value && value.trim().length > 0);
-  if (local) return local;
-
-  const session = TOKEN_KEYS
-    .map((key) => window.sessionStorage.getItem(key))
-    .find((value) => value && value.trim().length > 0);
-  if (session) return session;
-
-  const cookie = TOKEN_KEYS
-    .map((key) => getCookieValue(key))
-    .find((value) => value && value.trim().length > 0);
-  return cookie ?? null;
+  return getToken();
 };
 
 export const persistAuthToken = (token: string) => {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem("entraverse_admin_token", token);
-  window.sessionStorage.setItem("entraverse_admin_token", token);
-  window.localStorage.setItem("token", token);
-  window.localStorage.setItem("admin_token", token);
-  window.sessionStorage.setItem("token", token);
-  window.sessionStorage.setItem("admin_token", token);
+  setToken(token, true);
   api.defaults.headers.common.Authorization = `Bearer ${token}`;
 };
 
 export const clearPersistedAuth = () => {
-  if (typeof window === "undefined") return;
-  TOKEN_KEYS.forEach((key) => {
-    window.localStorage.removeItem(key);
-    window.sessionStorage.removeItem(key);
-    document.cookie = `${key}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
-  });
+  removeToken();
+
+  if (typeof document !== "undefined") {
+    TOKEN_COOKIE_KEYS.forEach((key) => {
+      document.cookie = `${key}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+    });
+  }
+
   delete api.defaults.headers.common.Authorization;
 };
 
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api",
+  baseURL: API_BASE_URL,
   timeout: 30000,
+  withCredentials: true,
+  xsrfCookieName: "XSRF-TOKEN",
+  xsrfHeaderName: "X-XSRF-TOKEN",
   headers: {
     Accept: "application/json",
     "Content-Type": "application/json",
@@ -61,8 +86,11 @@ const api = axios.create({
 });
 
 export const apiUpload = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api",
+  baseURL: API_BASE_URL,
   timeout: 60000,
+  withCredentials: true,
+  xsrfCookieName: "XSRF-TOKEN",
+  xsrfHeaderName: "X-XSRF-TOKEN",
   headers: {
     Accept: "application/json",
     "Content-Type": "multipart/form-data",
@@ -71,10 +99,18 @@ export const apiUpload = axios.create({
 });
 
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
+    const method = String(config.method ?? "get").toLowerCase();
+    const requestUrl = String(config.url ?? "");
+    if (MUTATING_METHODS.has(method) && !requestUrl.includes("/sanctum/csrf-cookie")) {
+      await ensureCsrfCookie();
+    }
+
     const token = getAuthToken();
-    if (token) {
+    if (token && usesBearerToken(requestUrl)) {
       config.headers.Authorization = `Bearer ${token}`;
+    } else if (config.headers?.Authorization) {
+      delete config.headers.Authorization;
     }
 
     if (process.env.NODE_ENV === "development") {
@@ -96,10 +132,18 @@ api.interceptors.request.use(
 );
 
 apiUpload.interceptors.request.use(
-  (config) => {
+  async (config) => {
+    const method = String(config.method ?? "get").toLowerCase();
+    const requestUrl = String(config.url ?? "");
+    if (MUTATING_METHODS.has(method) && !requestUrl.includes("/sanctum/csrf-cookie")) {
+      await ensureCsrfCookie();
+    }
+
     const token = getAuthToken();
-    if (token) {
+    if (token && usesBearerToken(requestUrl)) {
       config.headers.Authorization = `Bearer ${token}`;
+    } else if (config.headers?.Authorization) {
+      delete config.headers.Authorization;
     }
     return config;
   },
@@ -120,7 +164,7 @@ api.interceptors.response.use(
       requestUrl.includes("/v1/admin/login") ||
       requestUrl.includes("/sanctum/csrf-cookie");
 
-    if (status === 401 && typeof window !== "undefined" && !isAuthFlowRequest) {
+    if (status === 401 && typeof window !== "undefined" && !isAuthFlowRequest && usesBearerToken(requestUrl)) {
       clearPersistedAuth();
       const isOnLoginPage = window.location.pathname.startsWith("/auth/login");
       if (!isOnLoginPage) {
@@ -145,7 +189,7 @@ apiUpload.interceptors.response.use(
       requestUrl.includes("/v1/admin/login") ||
       requestUrl.includes("/sanctum/csrf-cookie");
 
-    if (status === 401 && typeof window !== "undefined" && !isAuthFlowRequest) {
+    if (status === 401 && typeof window !== "undefined" && !isAuthFlowRequest && usesBearerToken(requestUrl)) {
       clearPersistedAuth();
       const isOnLoginPage = window.location.pathname.startsWith("/auth/login");
       if (!isOnLoginPage) {

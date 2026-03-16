@@ -3,6 +3,7 @@
 @import "swiper/css";
 @import "swiper/css/navigation";
 @import "swiper/css/pagination";
+@import "react-easy-crop/react-easy-crop.css";
 
 :root {
   --background: #ffffff;
@@ -96,4 +97,33 @@ body {
 .banner-slider-pagination .swiper-pagination-bullet-active {
   width: 10px;
   background: #1f2937;
+}
+
+.product-description p {
+  margin-bottom: 1.25rem;
+  line-height: 1.7;
+}
+
+.product-description p:last-child {
+  margin-bottom: 0;
+}
+
+.product-description br {
+  display: block;
+  content: "";
+  margin-top: 0.5rem;
+}
+
+.product-description h1,
+.product-description h2,
+.product-description h3 {
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.product-description ul,
+.product-description ol {
+  margin-top: 0.5rem;
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
 }

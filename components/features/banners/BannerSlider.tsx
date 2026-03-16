@@ -21,7 +21,7 @@ export function BannerSlider({ banners, loading = false }: BannerSliderProps) {
   if (loading) {
     return (
       <div className="overflow-hidden rounded-2xl border border-blue-100 bg-[#eef1f7] shadow-sm">
-        <div className="aspect-[16/10] w-full animate-pulse bg-slate-200 sm:aspect-[16/9]" />
+        <div className="aspect-[2/1] w-full animate-pulse bg-slate-200" />
         <div className="h-11 border-t border-blue-100 bg-[#eef1f7]" />
       </div>
     );
@@ -30,7 +30,7 @@ export function BannerSlider({ banners, loading = false }: BannerSliderProps) {
   if (banners.length === 0) {
     return (
       <div className="overflow-hidden rounded-2xl border border-blue-100 bg-[#eef1f7] shadow-sm">
-        <div className="aspect-[16/10] w-full bg-slate-50 sm:aspect-[16/9]" />
+        <div className="aspect-[2/1] w-full bg-slate-50" />
         <div className="h-11 border-t border-blue-100 bg-[#eef1f7]" />
       </div>
     );

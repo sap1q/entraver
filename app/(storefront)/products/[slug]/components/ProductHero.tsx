@@ -7,11 +7,12 @@ import { ProductInfo } from "./ProductInfo";
 
 interface ProductHeroProps {
   product: ProductDetail;
+  selectedPrice: number;
   selectedVariants: Record<string, string>;
   onVariantChange: (groupName: string, option: string) => void;
 }
 
-export const ProductHero = ({ product, selectedVariants, onVariantChange }: ProductHeroProps) => {
+export const ProductHero = ({ product, selectedPrice, selectedVariants, onVariantChange }: ProductHeroProps) => {
   const { images, activeIndex, activeImage, zoomed, setZoomed, setActiveIndex, next, previous } = useProductGallery(
     product.gallery,
     product.image
@@ -34,7 +35,12 @@ export const ProductHero = ({ product, selectedVariants, onVariantChange }: Prod
           />
         </Gallery>
 
-        <ProductInfo product={product} selectedVariants={selectedVariants} onVariantChange={onVariantChange} />
+        <ProductInfo
+          product={product}
+          selectedPrice={selectedPrice}
+          selectedVariants={selectedVariants}
+          onVariantChange={onVariantChange}
+        />
       </div>
     </section>
   );

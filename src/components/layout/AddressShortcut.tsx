@@ -2,10 +2,9 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { MapPin } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isAxiosError } from "@/lib/axios";
-import { userAddressApi } from "@/lib/api/user-address";
-import type { UserAddress } from "@/lib/api/types/user-address.types";
+import { useAddress } from "@/hooks/useAddress";
 
 const panelMotion = {
   hidden: { opacity: 0, scale: 0, y: -10 },
@@ -23,55 +22,42 @@ const panelMotion = {
   },
 } as const;
 
-const getApiErrorMessage = (error: unknown): string => {
-  if (!isAxiosError(error)) return "Gagal memuat alamat.";
-  const status = error.response?.status;
-  if (status === 401) return "Silakan login untuk memilih alamat pengiriman.";
-
-  const message = error.response?.data?.message;
-  return typeof message === "string" && message.trim().length > 0
-    ? message
-    : "Terjadi kesalahan saat mengambil alamat.";
+type AddressShortcutProps = {
+  mode?: "icon" | "pill";
+  compact?: boolean;
 };
 
-export function AddressShortcut() {
+const getAddressLabel = (location: string | null): string => {
+  if (!location) {
+    return "Alamat Anda";
+  }
+
+  return `Dikirim ke ${location}`;
+};
+
+export function AddressShortcut({ mode = "icon" }: AddressShortcutProps) {
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [addresses, setAddresses] = useState<UserAddress[]>([]);
-  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
-
+  const {
+    addresses,
+    selectedAddress,
+    selectedAddressId,
+    selectedAddressLocation,
+    isLoaded,
+    loading,
+    savingId,
+    error,
+    fetchAddresses,
+    setMainAddress,
+  } = useAddress();
   const rootRef = useRef<HTMLDivElement>(null);
-
-  const selectedAddress = useMemo(
-    () => addresses.find((item) => item.id === selectedAddressId) ?? null,
-    [addresses, selectedAddressId]
-  );
-
-  const fetchAddresses = async () => {
-    setLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const rows = await userAddressApi.getAll();
-      setAddresses(rows);
-
-      const mainAddress = rows.find((item) => item.is_main) ?? rows[0] ?? null;
-      setSelectedAddressId(mainAddress?.id ?? null);
-    } catch (error) {
-      setErrorMessage(getApiErrorMessage(error));
-    } finally {
-      setLoading(false);
-      setIsLoaded(true);
-    }
-  };
+  const addressLabel = useMemo(() => getAddressLabel(selectedAddressLocation), [selectedAddressLocation]);
 
   useEffect(() => {
-    if (!open || isLoaded) return;
-    void fetchAddresses();
-  }, [isLoaded, open]);
+    if (!open) return;
+    if (!isLoaded) {
+      void fetchAddresses();
+    }
+  }, [fetchAddresses, isLoaded, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -97,41 +83,39 @@ export function AddressShortcut() {
     };
   }, [open]);
 
-  const handleSelectAddress = async (addressId: string) => {
+  const handleSelectAddress = (addressId: string) => {
     if (addressId === selectedAddressId || savingId) return;
-
-    setSavingId(addressId);
-    setErrorMessage(null);
-
-    try {
-      await userAddressApi.setMain(addressId);
-      setSelectedAddressId(addressId);
-      setAddresses((prev) =>
-        prev.map((item) => ({
-          ...item,
-          is_main: item.id === addressId,
-        }))
-      );
-    } catch (error) {
-      setErrorMessage(getApiErrorMessage(error));
-    } finally {
-      setSavingId(null);
-    }
+    void setMainAddress(addressId);
   };
 
   return (
     <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="rounded-full p-2 text-slate-700 transition-colors hover:text-blue-600"
-        aria-label="Ubah alamat pengiriman"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        title={selectedAddress ? `Alamat aktif: ${selectedAddress.label ?? selectedAddress.recipient_name}` : "Pilih alamat pengiriman"}
-      >
-        <MapPin className="h-5 w-5" strokeWidth={1.5} />
-      </button>
+      {mode === "pill" ? (
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          className="inline-flex h-8 max-w-[220px] items-center gap-1.5 rounded-full bg-blue-50 px-3 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
+          aria-label="Ubah alamat pengiriman"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          title={selectedAddress ? `Alamat aktif: ${selectedAddress.label ?? selectedAddress.recipient_name}` : "Pilih alamat pengiriman"}
+        >
+          <MapPin className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+          <span className="truncate">{addressLabel}</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          className="rounded-full p-2 text-slate-700 transition-colors hover:text-blue-600"
+          aria-label="Ubah alamat pengiriman"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          title={selectedAddress ? `Alamat aktif: ${selectedAddress.label ?? selectedAddress.recipient_name}` : "Pilih alamat pengiriman"}
+        >
+          <MapPin className="h-5 w-5" strokeWidth={1.5} />
+        </button>
+      )}
 
       <AnimatePresence>
         {open ? (
@@ -142,15 +126,16 @@ export function AddressShortcut() {
             exit="exit"
             role="dialog"
             aria-label="Pilih alamat pengiriman"
-            className="absolute right-0 top-[calc(100%+10px)] z-[70] w-[calc(100vw-2rem)] max-w-[420px] origin-top-right rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_18px_60px_rgba(15,23,42,0.2)]"
+            className={`absolute top-[calc(100%+10px)] z-[70] w-[calc(100vw-2rem)] max-w-[420px] rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_18px_60px_rgba(15,23,42,0.2)] ${
+              mode === "pill" ? "left-0 origin-top-left" : "right-0 origin-top-right"
+            }`}
           >
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-900">Alamat Pengiriman</h3>
               <button
                 type="button"
                 onClick={() => {
-                  setIsLoaded(false);
-                  void fetchAddresses();
+                  void fetchAddresses({ force: true });
                 }}
                 className="text-xs font-medium text-blue-600 transition-colors hover:text-blue-700"
               >
@@ -166,19 +151,26 @@ export function AddressShortcut() {
               </div>
             ) : null}
 
-            {!loading && errorMessage ? (
+            {!loading && error ? (
               <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                {errorMessage}
+                {error}
               </div>
             ) : null}
 
-            {!loading && !errorMessage && addresses.length === 0 ? (
+            {!loading && !error && addresses.length === 0 ? (
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
                 Belum ada alamat tersimpan.
+                <Link
+                  href="/account/addresses/create"
+                  onClick={() => setOpen(false)}
+                  className="mt-2 inline-flex text-xs font-semibold text-blue-600 hover:text-blue-700"
+                >
+                  Tambah Alamat
+                </Link>
               </div>
             ) : null}
 
-            {!loading && !errorMessage && addresses.length > 0 ? (
+            {!loading && !error && addresses.length > 0 ? (
               <ul className="max-h-[320px] space-y-2 overflow-auto pr-1">
                 {addresses.map((address) => {
                   const isSelected = selectedAddressId === address.id;
@@ -199,7 +191,7 @@ export function AddressShortcut() {
                         <div className="mb-1.5 flex items-center gap-2">
                           <p className="truncate text-sm font-semibold text-slate-900">{address.recipient_name}</p>
                           {address.is_main ? (
-                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
                               Utama
                             </span>
                           ) : null}
@@ -216,6 +208,16 @@ export function AddressShortcut() {
                 })}
               </ul>
             ) : null}
+
+            <div className="mt-3 border-t border-slate-200 pt-3">
+              <Link
+                href="/account/addresses"
+                onClick={() => setOpen(false)}
+                className="text-xs font-semibold text-blue-600 transition hover:text-blue-700"
+              >
+                Kelola Daftar Alamat
+              </Link>
+            </div>
           </motion.div>
         ) : null}
       </AnimatePresence>

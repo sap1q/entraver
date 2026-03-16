@@ -1,11 +1,12 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { User } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { userProfileApi } from "@/lib/api/user-profile";
 import { clearPersistedAuth } from "@/lib/axios";
+import { getCachedProfileAvatar, getNameInitials, resolveApiAssetUrl } from "@/lib/utils/media";
 import { getStoredAdmin, getToken, removeStoredAdmin, removeToken } from "@/lib/utils/storage";
 
 const panelMotion = {
@@ -25,27 +26,75 @@ const panelMotion = {
 } as const;
 
 const profileLinks = [
-  { label: "Akun Saya", href: "/akun-saya" },
-  { label: "Alamat", href: "/alamat" },
+  { label: "Akun Saya", href: "/account/profile" },
+  { label: "Alamat", href: "/account/addresses" },
   { label: "Transaksi", href: "/transaksi" },
 ] as const;
+
+type ProfileShortcutSnapshot = {
+  isLoggedIn: boolean;
+  name: string | null;
+  role: string | null;
+};
+
+const serverProfileShortcutSnapshot: ProfileShortcutSnapshot = {
+  isLoggedIn: false,
+  name: null,
+  role: null,
+};
+
+let cachedProfileShortcutSnapshot: ProfileShortcutSnapshot = serverProfileShortcutSnapshot;
+
+const getProfileShortcutServerSnapshot = (): ProfileShortcutSnapshot => serverProfileShortcutSnapshot;
+
+const getProfileShortcutSnapshot = (): ProfileShortcutSnapshot => {
+  const storedAdmin = getStoredAdmin();
+  const nextSnapshot: ProfileShortcutSnapshot = {
+    isLoggedIn: Boolean(getToken()),
+    name: storedAdmin?.name ?? null,
+    role: storedAdmin?.role ?? null,
+  };
+
+  if (
+    cachedProfileShortcutSnapshot.isLoggedIn === nextSnapshot.isLoggedIn &&
+    cachedProfileShortcutSnapshot.name === nextSnapshot.name &&
+    cachedProfileShortcutSnapshot.role === nextSnapshot.role
+  ) {
+    return cachedProfileShortcutSnapshot;
+  }
+
+  cachedProfileShortcutSnapshot = nextSnapshot;
+  return cachedProfileShortcutSnapshot;
+};
+
+const subscribeProfileShortcut = (callback: () => void) => {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+
+  const notify = () => callback();
+
+  window.addEventListener("storage", notify);
+  window.addEventListener("storefront-profile-updated", notify as EventListener);
+
+  return () => {
+    window.removeEventListener("storage", notify);
+    window.removeEventListener("storefront-profile-updated", notify as EventListener);
+  };
+};
 
 export function ProfileShortcut() {
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement>(null);
+  const profileSnapshot = useSyncExternalStore(
+    subscribeProfileShortcut,
+    getProfileShortcutSnapshot,
+    getProfileShortcutServerSnapshot
+  );
 
   const [open, setOpen] = useState(false);
-  const [storedRole, setStoredRole] = useState<string | null>(null);
-  const [storedName, setStoredName] = useState<string | null>(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-
-  useEffect(() => {
-    const token = getToken();
-    const admin = getStoredAdmin();
-    setIsLoggedIn(Boolean(token));
-    setStoredRole(admin?.role ?? null);
-    setStoredName(admin?.name ?? null);
-  }, []);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarBroken, setAvatarBroken] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -71,10 +120,46 @@ export function ProfileShortcut() {
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!profileSnapshot.isLoggedIn) return;
+
+    const controller = new AbortController();
+
+    const loadProfile = async () => {
+      try {
+        const profile = await userProfileApi.getProfile(controller.signal);
+        setAvatarBroken(false);
+        setAvatarUrl(getCachedProfileAvatar() || resolveApiAssetUrl(profile.avatar));
+      } catch {
+        setAvatarUrl(getCachedProfileAvatar());
+        setAvatarBroken(false);
+      }
+    };
+
+    void loadProfile();
+
+    const handleProfileUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ avatar?: string | null; name?: string | null }>).detail;
+      setAvatarBroken(false);
+      setAvatarUrl(getCachedProfileAvatar() || resolveApiAssetUrl(detail?.avatar));
+    };
+
+    window.addEventListener("storefront-profile-updated", handleProfileUpdated as EventListener);
+
+    return () => {
+      controller.abort();
+      window.removeEventListener("storefront-profile-updated", handleProfileUpdated as EventListener);
+    };
+  }, [profileSnapshot.isLoggedIn]);
+
   const canAccessAdminPanel = useMemo(() => {
-    if (!storedRole) return false;
-    return storedRole === "superadmin" || storedRole === "admin";
-  }, [storedRole]);
+    if (!profileSnapshot.role) return false;
+    return profileSnapshot.role === "superadmin" || profileSnapshot.role === "admin";
+  }, [profileSnapshot.role]);
+
+  const displayName = profileSnapshot.name || (profileSnapshot.isLoggedIn ? "Pengguna Entraverse" : "Guest");
+  const initials = getNameInitials(displayName, profileSnapshot.isLoggedIn ? "U" : "G");
+  const showAvatarImage = Boolean(avatarUrl && !avatarBroken);
 
   const handleLogout = () => {
     removeToken();
@@ -89,13 +174,33 @@ export function ProfileShortcut() {
     <div ref={rootRef} className="relative">
       <button
         type="button"
-        className="rounded-full p-2 text-slate-700 transition-colors hover:text-blue-600"
+        className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:border-blue-200 hover:text-blue-600"
         aria-label="Menu profil"
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => setOpen((prev) => !prev)}
       >
-        <User className="h-5 w-5" strokeWidth={1.5} />
+        {showAvatarImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatarUrl ?? ""}
+            alt={displayName}
+            className="h-full w-full rounded-full object-cover"
+            onError={() => {
+              const cachedAvatar = getCachedProfileAvatar();
+              if (cachedAvatar && cachedAvatar !== avatarUrl) {
+                setAvatarUrl(cachedAvatar);
+                setAvatarBroken(false);
+                return;
+              }
+              setAvatarBroken(true);
+            }}
+          />
+        ) : (
+          <span className="inline-flex h-full w-full items-center justify-center rounded-full bg-blue-600 text-xs font-bold tracking-wide text-white">
+            {initials}
+          </span>
+        )}
       </button>
 
       <AnimatePresence>
@@ -112,7 +217,7 @@ export function ProfileShortcut() {
             <div className="px-2 pb-2 pt-1">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Profil</p>
               <p className="truncate text-sm font-semibold text-slate-900">
-                {storedName || (isLoggedIn ? "Pengguna Entraverse" : "Guest")}
+                {displayName}
               </p>
             </div>
 
@@ -143,7 +248,7 @@ export function ProfileShortcut() {
                 </Link>
               ))}
 
-              {isLoggedIn ? (
+              {profileSnapshot.isLoggedIn ? (
                 <button
                   type="button"
                   className="block w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
