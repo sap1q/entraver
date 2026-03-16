@@ -7,7 +7,7 @@ import { productsApi } from "@/lib/api/products";
 import type { Brand } from "@/types/product.types";
 
 export const BrandFilter = () => {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

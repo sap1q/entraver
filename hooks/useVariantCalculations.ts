@@ -10,6 +10,8 @@ export const useVariantCalculations = () => {
     const purchasePrice = nonNegative(variant.purchasePrice);
     const exchangeValue = nonNegative(variant.exchangeValue);
     const arrivalCost = nonNegative(variant.arrivalCost);
+    const shippingCost = nonNegative(variant.shippingCost);
+    const marginPercent = nonNegative(variant.marginPercent);
     const avgA = nonNegative(variant.avgSalesA);
     const avgB = nonNegative(variant.avgSalesB);
     const leadTime = nonNegative(variant.leadTime);
@@ -30,6 +32,8 @@ export const useVariantCalculations = () => {
       purchasePrice,
       exchangeValue,
       arrivalCost,
+      shippingCost,
+      marginPercent,
       stock,
       avgSalesA: avgA,
       avgSalesB: avgB,
@@ -40,7 +44,6 @@ export const useVariantCalculations = () => {
       need15Days,
       inTransitStock,
       procurementStatus,
-      shippingCost: variant.shipping === "Udara" ? nonNegative(variant.itemWeight) / 1000 * 155000 : variant.shippingCost,
     };
   }, []);
 

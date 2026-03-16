@@ -49,7 +49,7 @@ export const ProductDescription = ({ description }: ProductDescriptionProps) => 
         >
           <div
             ref={contentRef}
-            className="prose prose-slate max-w-none text-slate-700"
+            className="product-description prose prose-slate max-w-none text-slate-700"
             dangerouslySetInnerHTML={{ __html: safeDescription }}
           />
         </motion.div>

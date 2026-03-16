@@ -1,14 +1,8 @@
 const normalizePlainTextSpacing = (value: string): string =>
   value
     .replace(/\u00a0/g, " ")
-    .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-
-const normalizeInlineTextSpacing = (value: string): string =>
-  value
-    .replace(/\u00a0/g, " ")
-    .replace(/[ \t]{2,}/g, " ");
 
 const escapeHtml = (value: string): string =>
   value
@@ -19,22 +13,57 @@ const escapeHtml = (value: string): string =>
     .replace(/'/g, "&#39;");
 
 const hasHtmlTag = (value: string): boolean => /<\/?[a-z][\s\S]*>/i.test(value);
+const isSpacerMarker = (value: string): boolean => /^-$/.test(value.trim());
+const SPACER_TOKEN = "__DESCRIPTION_SPACER__";
+
+const parsePlainTextBlocks = (value: string): string[] => {
+  const lines = value.split("\n");
+  const blocks: string[] = [];
+  let current: string[] = [];
+
+  const flushCurrent = () => {
+    const merged = current.join("\n").trim();
+    if (merged) {
+      blocks.push(merged);
+    }
+    current = [];
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+
+    if (isSpacerMarker(trimmed)) {
+      flushCurrent();
+      blocks.push(SPACER_TOKEN);
+      return;
+    }
+
+    if (trimmed === "") {
+      flushCurrent();
+      return;
+    }
+
+    current.push(line);
+  });
+
+  flushCurrent();
+  return blocks;
+};
 
 export const toDescriptionHtml = (value: string): string => {
   const normalized = value.replace(/\r\n/g, "\n").trim();
   if (!normalized) return "<p></p>";
   if (hasHtmlTag(normalized)) return normalized;
 
-  const paragraphs = normalized
-    .split(/\n{2,}/)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-    .map((chunk) => `<p>${escapeHtml(chunk).replace(/\n/g, "<br>")}</p>`);
+  const paragraphs = parsePlainTextBlocks(normalized)
+    .map((chunk) => (chunk === SPACER_TOKEN ? "<p><br></p>" : `<p>${escapeHtml(chunk).replace(/\n/g, "<br>")}</p>`));
 
   return paragraphs.length > 0 ? paragraphs.join("") : "<p></p>";
 };
 
 export const normalizeDescriptionHtml = (value: string): string => {
+  if (!value || value.trim() === "") return "<p></p>";
+
   const raw = toDescriptionHtml(value);
   if (!raw) return "<p></p>";
 
@@ -54,14 +83,6 @@ export const normalizeDescriptionHtml = (value: string): string => {
       node.remove();
       return;
     }
-
-    if (text) {
-      // Keep formatting tags inside block while normalizing text-only nodes.
-      node.childNodes.forEach((child) => {
-        if (child.nodeType !== Node.TEXT_NODE) return;
-        child.textContent = normalizeInlineTextSpacing(child.textContent ?? "");
-      });
-    }
   });
 
   const htmlWithBlockSpacing = documentNode.body.innerHTML
@@ -70,6 +91,7 @@ export const normalizeDescriptionHtml = (value: string): string => {
   let normalized = htmlWithBlockSpacing
     .replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>")
     .replace(/<p>\s*<\/p>/gi, "<p><br></p>")
+    .replace(/<p>\s*-\s*<\/p>/gi, "<p><br></p>")
     .trim();
 
   if (!normalized) normalized = "<p></p>";

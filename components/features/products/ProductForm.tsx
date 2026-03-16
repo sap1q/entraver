@@ -10,6 +10,11 @@ import VariantManager from "@/components/features/products/VariantManager";
 import VariantMatrix from "@/components/features/products/VariantMatrix";
 import type { useProductForm } from "@/hooks/useProductForm";
 import { useCategoryOptions } from "@/hooks/useCategories";
+import {
+  DEFAULT_WARRANTY_PRICING,
+  isWarrantyMetaLabel,
+  parseWarrantyProgram,
+} from "@/lib/warrantyProgram";
 
 type ProductFormProps = {
   formState: ReturnType<typeof useProductForm>;
@@ -29,6 +34,7 @@ export default function ProductForm({ formState }: ProductFormProps) {
     logistics,
     tradeIn,
     updateLogistics,
+    updateShippingRates,
     handleImageChange,
     handleRemoveImage,
     handleDescriptionChange,
@@ -46,109 +52,42 @@ export default function ProductForm({ formState }: ProductFormProps) {
     [form.basic.categoryId, getCategory]
   );
 
-  const warrantyComponentsFromCategory = useMemo(() => {
-    type WarrantyComponent = {
-      label: string;
-      valueType: "percent" | "amount";
-      value: number;
-      notes?: string;
-    };
-
-    const normalizeLabel = (value: string) => value.trim().replace(/\s+/g, " ");
-    const pushUnique = (target: WarrantyComponent[], source: WarrantyComponent) => {
-      const key = normalizeLabel(source.label).toLowerCase();
-      if (!key) return;
-      if (target.some((item) => normalizeLabel(item.label).toLowerCase() === key)) return;
-      target.push(source);
-    };
-
-    const parseComponent = (item: unknown): WarrantyComponent | null => {
-      if (typeof item === "string") {
-        const label = normalizeLabel(item);
-        if (!label) return null;
-        return { label, valueType: "percent", value: 0 };
-      }
-
-      if (typeof item === "object" && item !== null) {
-        const row = item as Record<string, unknown>;
-        const label = normalizeLabel(String(row.label ?? row.name ?? ""));
-        if (!label) return null;
-        return {
-          label,
-          valueType: row.valueType === "amount" ? "amount" : "percent",
-          value: Math.max(0, Number(row.value) || 0),
-          notes: String(row.notes ?? "").trim() || undefined,
-        };
-      }
-
-      return null;
-    };
-
-    const rawValue = selectedCategory?.program_garansi;
-    const result: WarrantyComponent[] = [];
-    if (!rawValue) return result;
-
-    const extractFromParsed = (parsed: unknown) => {
-      if (Array.isArray(parsed)) {
-        parsed.forEach((item) => {
-          const component = parseComponent(item);
-          if (component) pushUnique(result, component);
-        });
-        return;
-      }
-
-      if (typeof parsed === "object" && parsed !== null) {
-        const row = parsed as Record<string, unknown>;
-        if (Array.isArray(row.components)) {
-          row.components.forEach((item) => {
-            const component = parseComponent(item);
-            if (component) pushUnique(result, component);
-          });
-        }
-      }
-    };
-
-    if (typeof rawValue === "string") {
-      const trimmed = rawValue.trim();
-      if (!trimmed) return result;
-
-      try {
-        extractFromParsed(JSON.parse(trimmed));
-      } catch {
-        trimmed
-          .split(/\r?\n|,/)
-          .map((item) => normalizeLabel(item))
-          .filter(Boolean)
-          .forEach((label) => pushUnique(result, { label, valueType: "percent", value: 0 }));
-      }
-
-      return result;
-    }
-
-    extractFromParsed(rawValue);
-    return result;
-  }, [selectedCategory?.program_garansi]);
+  const warrantyProgramFromCategory = useMemo(
+    () => parseWarrantyProgram(selectedCategory?.program_garansi ?? null),
+    [selectedCategory?.program_garansi]
+  );
+  const warrantyComponentsFromCategory = warrantyProgramFromCategory.components;
+  const warrantyPricingFromCategory = warrantyProgramFromCategory.pricing;
 
   const categoryPricing = useMemo(() => {
     if (!selectedCategory) {
       return {
-        minMarginPercent: 0,
+        marginPercent: 0,
         fees: null,
         currencySurcharge: 50,
+        roundToNearest: 100,
         warrantyComponents: [],
+        warrantyPricing: {
+          cost: { ...DEFAULT_WARRANTY_PRICING.cost },
+          profit: { ...DEFAULT_WARRANTY_PRICING.profit },
+        },
       };
     }
 
     return {
-      minMarginPercent: selectedCategory.min_margin ?? 0,
+      marginPercent: selectedCategory.margin_percent ?? selectedCategory.min_margin ?? 0,
       fees: selectedCategory.fees ?? null,
       currencySurcharge: 50,
+      roundToNearest: 100,
       warrantyComponents: warrantyComponentsFromCategory,
+      warrantyPricing: warrantyPricingFromCategory,
     };
-  }, [selectedCategory, warrantyComponentsFromCategory]);
+  }, [selectedCategory, warrantyComponentsFromCategory, warrantyPricingFromCategory]);
 
   const warrantyOptionsFromCategory = useMemo(() => {
-    return warrantyComponentsFromCategory.map((item) => item.label).filter(Boolean);
+    return warrantyComponentsFromCategory
+      .map((item) => item.label)
+      .filter((label) => Boolean(label) && !isWarrantyMetaLabel(label));
   }, [warrantyComponentsFromCategory]);
 
   useEffect(() => {
@@ -187,6 +126,8 @@ export default function ProductForm({ formState }: ProductFormProps) {
         matrixData={matrixData}
         updateField={updateField}
         inventoryVolumeCbm={logistics.volume}
+        shippingRates={logistics.shippingRates}
+        onShippingRatesChange={updateShippingRates}
         categoryPricing={categoryPricing}
       />
     </div>

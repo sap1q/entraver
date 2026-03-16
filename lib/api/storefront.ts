@@ -194,13 +194,6 @@ const resolveProductImage = (row: JsonRecord): string | null => {
 };
 
 const resolveProductPrice = (row: JsonRecord): number => {
-  const directPrice = toNumberValue(row.price);
-  if (directPrice !== null) return directPrice;
-
-  const inventory = toObject(row.inventory);
-  const inventoryPrice = toNumberValue(inventory.price);
-  if (inventoryPrice !== null) return inventoryPrice;
-
   const variantPricing = Array.isArray(row.variant_pricing) ? row.variant_pricing : [];
   if (variantPricing.length > 0) {
     const firstVariant = toObject(variantPricing[0]);
@@ -211,6 +204,16 @@ const resolveProductPrice = (row: JsonRecord): number => {
 
     if (variantPrice !== null) return variantPrice;
   }
+
+  const directPrice =
+    toNumberValue(row.entraverse_price) ??
+    toNumberValue(row.offline_price) ??
+    toNumberValue(row.price);
+  if (directPrice !== null) return directPrice;
+
+  const inventory = toObject(row.inventory);
+  const inventoryPrice = toNumberValue(inventory.price);
+  if (inventoryPrice !== null) return inventoryPrice;
 
   return 0;
 };

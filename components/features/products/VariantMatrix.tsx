@@ -4,25 +4,26 @@ import { useMemo } from "react";
 import { DollarSign, Package, TrendingUp } from "lucide-react";
 import type { MatrixPricing, VariantCombination } from "@/types/product";
 import type { CategoryFees } from "@/types/category.types";
-import { DEFAULT_MATRIX_ROW } from "@/lib/utils";
+import { calculateFinalBeli, DEFAULT_MATRIX_ROW } from "@/lib/utils";
+import type { WarrantyComponent, WarrantyPricingConfig } from "@/lib/warrantyProgram";
 import VariantTable from "@/components/features/products/VariantTable";
 import { useVariantCalculations } from "@/hooks/useVariantCalculations";
+import type { ShippingRates } from "@/types/product";
 
 type VariantMatrixProps = {
   combinations: VariantCombination[];
   matrixData: Record<string, MatrixPricing>;
   updateField: (key: string, field: keyof MatrixPricing, value: number | string) => void;
   inventoryVolumeCbm?: number;
+  shippingRates: ShippingRates;
+  onShippingRatesChange: (nextRates: ShippingRates) => void;
   categoryPricing?: {
-    minMarginPercent: number;
+    marginPercent: number;
     fees: CategoryFees | null;
     currencySurcharge?: number;
-    warrantyComponents?: Array<{
-      label: string;
-      valueType: "percent" | "amount";
-      value: number;
-      notes?: string;
-    }>;
+    roundToNearest?: number;
+    warrantyComponents?: WarrantyComponent[];
+    warrantyPricing?: WarrantyPricingConfig;
   };
 };
 
@@ -35,6 +36,8 @@ export default function VariantMatrix({
   matrixData,
   updateField,
   inventoryVolumeCbm = 0,
+  shippingRates,
+  onShippingRatesChange,
   categoryPricing,
 }: VariantMatrixProps) {
   const { calculateVariant } = useVariantCalculations();
@@ -42,7 +45,7 @@ export default function VariantMatrix({
   const summary = useMemo(() => {
     const rows = combinations.map((combo) => calculateVariant({ ...DEFAULT_MATRIX_ROW, ...(matrixData[combo.key] ?? {}) }));
     const totalStock = rows.reduce((sum, row) => sum + row.stock, 0);
-    const avgPurchase = rows.length > 0 ? rows.reduce((sum, row) => sum + row.purchasePrice * row.exchangeValue + row.arrivalCost, 0) / rows.length : 0;
+    const avgPurchase = rows.length > 0 ? rows.reduce((sum, row) => sum + calculateFinalBeli(row), 0) / rows.length : 0;
     const warningCount = rows.filter((row) => row.procurementStatus !== "Normal").length;
 
     return { totalVarian: rows.length, totalStock, avgPurchase, warningCount };
@@ -96,6 +99,8 @@ export default function VariantMatrix({
         matrixData={matrixData}
         onUpdateField={updateField}
         inventoryVolumeCbm={inventoryVolumeCbm}
+        shippingRateDefaults={shippingRates}
+        onShippingRatesChange={onShippingRatesChange}
         categoryPricing={categoryPricing}
       />
     </section>

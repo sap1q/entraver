@@ -2,7 +2,7 @@
 
 import type { InventoryPlan } from "@/types/product";
 
-type LogisticsField = Exclude<keyof InventoryPlan, "volume">;
+type LogisticsField = Exclude<keyof InventoryPlan, "volume" | "shippingRates">;
 
 type LogisticsParamsProps = {
   logistics: InventoryPlan;

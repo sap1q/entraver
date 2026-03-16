@@ -1,4 +1,4 @@
-import api from "@/lib/axios";
+import api, { isAxiosError } from "@/lib/axios";
 import type {
   ApiSuccessResponse,
   Brand,
@@ -13,6 +13,7 @@ import type {
   ProductReviewResponse,
   ProductReviewSummary,
   ProductVariantGroup,
+  ProductVariantPricingRow,
   WishlistToggleResponse,
 } from "@/types/product.types";
 
@@ -166,6 +167,29 @@ const resolveTradeIn = (row: JsonRecord): boolean => {
   return candidates.some((value) => toBooleanValue(value));
 };
 
+const resolveProductPrice = (row: JsonRecord): number => {
+  const variantPricing = Array.isArray(row.variant_pricing) ? row.variant_pricing : [];
+  if (variantPricing.length > 0) {
+    const firstVariant = toObject(variantPricing[0]);
+    const variantPrice =
+      toNumberValue(firstVariant.entraverse_price) ??
+      toNumberValue(firstVariant.offline_price) ??
+      toNumberValue(firstVariant.price);
+    if (variantPrice !== null) return variantPrice;
+  }
+
+  const directPrice =
+    toNumberValue(row.entraverse_price) ??
+    toNumberValue(row.offline_price) ??
+    toNumberValue(row.price);
+  if (directPrice !== null) return directPrice;
+
+  const inventoryPrice = toNumberValue(toObject(row.inventory).price);
+  if (inventoryPrice !== null) return inventoryPrice;
+
+  return 0;
+};
+
 const resolveStockStatus = (
   status: unknown,
   stock: number
@@ -268,8 +292,11 @@ const mapProduct = (raw: unknown): Product => {
   const row = toObject(raw);
   const name = toStringValue(row.name) ?? "Produk";
   const slug = toStringValue(row.slug) ?? (slugify(name) || "produk");
+  const variantPricing = Array.isArray(row.variant_pricing)
+    ? row.variant_pricing.map(mapVariantPricingRow)
+    : undefined;
 
-  const price = toNumberValue(row.price) ?? toNumberValue(toObject(row.inventory).price) ?? 0;
+  const price = resolveProductPrice(row);
   const originalPrice = toNumberValue(row.original_price) ?? undefined;
   const discountPercentage =
     toNumberValue(row.discount_percentage) ??
@@ -298,7 +325,32 @@ const mapProduct = (raw: unknown): Product => {
     stock_status: resolveStockStatus(row.stock_status, stock),
     warranty: toStringValue(row.warranty) ?? undefined,
     variants: resolveVariants(row),
+    variant_pricing: variantPricing,
     trade_in: resolveTradeIn(row),
+  };
+};
+
+const mapVariantPricingRow = (raw: unknown): ProductVariantPricingRow => {
+  const row = toObject(raw);
+  const rawOptions = toObject(row.options);
+  const options = Object.fromEntries(
+    Object.entries(rawOptions)
+      .map(([key, value]) => [String(key).trim(), toStringValue(value) ?? ""])
+      .filter(([key, value]) => key.length > 0 && value.length > 0)
+  );
+
+  return {
+    sku: toStringValue(row.sku) ?? undefined,
+    sku_seller: toStringValue(row.sku_seller) ?? undefined,
+    variant_code: toStringValue(row.variant_code) ?? undefined,
+    label: toStringValue(row.label) ?? undefined,
+    options: Object.keys(options).length > 0 ? options : undefined,
+    stock: toNumberValue(row.stock) ?? undefined,
+    item_weight: toNumberValue(row.item_weight) ?? undefined,
+    offline_price: toNumberValue(row.offline_price) ?? undefined,
+    entraverse_price: toNumberValue(row.entraverse_price) ?? undefined,
+    tokopedia_price: toNumberValue(row.tokopedia_price) ?? undefined,
+    shopee_price: toNumberValue(row.shopee_price) ?? undefined,
   };
 };
 
@@ -503,31 +555,42 @@ const mapBrand = (raw: unknown): Brand => {
   };
 };
 
+const fetchProductCollection = async (
+  endpoint: "/v1/products" | "/v1/products/load-more",
+  filters?: ProductFilters
+): Promise<ProductApiResponse> => {
+  const params = {
+    ...filters,
+    categories: toCsvParam(filters?.categories),
+    brands: toCsvParam(filters?.brands),
+    ratings: toCsvParam(filters?.ratings),
+  };
+
+  const response = await api.get(endpoint, {
+    params,
+    timeout: 120000,
+  });
+  const rows = extractProductRows(response.data);
+  const products = rows.map(mapProduct);
+  const meta = extractMeta(response.data, products.length);
+
+  return {
+    success: true,
+    data: products,
+    meta: {
+      ...meta,
+      filters,
+    },
+  } satisfies ProductApiResponse;
+};
+
 export const productsApi = {
   getProducts: async (filters?: ProductFilters) => {
-    const params = {
-      ...filters,
-      categories: toCsvParam(filters?.categories),
-      brands: toCsvParam(filters?.brands),
-      ratings: toCsvParam(filters?.ratings),
-    };
+    return fetchProductCollection("/v1/products", filters);
+  },
 
-    const response = await api.get("/v1/products", {
-      params,
-      timeout: 120000,
-    });
-    const rows = extractProductRows(response.data);
-    const products = rows.map(mapProduct);
-    const meta = extractMeta(response.data, products.length);
-
-    return {
-      success: true,
-      data: products,
-      meta: {
-        ...meta,
-        filters,
-      },
-    } satisfies ProductApiResponse;
+  loadMoreProducts: async (filters?: ProductFilters) => {
+    return fetchProductCollection("/v1/products/load-more", filters);
   },
 
   getProductBySlug: async (slug: string): Promise<ProductDetail> => {
@@ -553,14 +616,9 @@ export const productsApi = {
     productId: string,
     params?: ProductReviewQuery
   ): Promise<ProductReviewResponse> => {
-    const response = await api.get(`/v1/products/${productId}/reviews`, { params });
-    const payload = toObject(response.data);
-    const rows = Array.isArray(payload.data) ? payload.data : [];
-    const reviews = rows.map(mapReview);
-
     const fallbackSummary: ProductReviewSummary = {
       average_rating: 0,
-      total_count: reviews.length,
+      total_count: 0,
       distribution: {
         5: 0,
         4: 0,
@@ -570,11 +628,34 @@ export const productsApi = {
       },
     };
 
-    return {
-      success: payload.success !== false,
-      data: reviews,
-      meta: extractReviewMeta(payload, fallbackSummary, reviews.length),
-    };
+    try {
+      const response = await api.get(`/v1/products/${productId}/reviews`, { params });
+      const payload = toObject(response.data);
+      const rows = Array.isArray(payload.data) ? payload.data : [];
+      const reviews = rows.map(mapReview);
+
+      return {
+        success: payload.success !== false,
+        data: reviews,
+        meta: extractReviewMeta(payload, fallbackSummary, reviews.length),
+      };
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 404) {
+        return {
+          success: true,
+          data: [],
+          meta: {
+            current_page: 1,
+            last_page: 1,
+            total: 0,
+            per_page: 0,
+            summary: fallbackSummary,
+          },
+        };
+      }
+
+      throw error;
+    }
   },
 
   addToCart: async (productId: string, quantity: number, variant?: Record<string, string>) => {
@@ -588,7 +669,9 @@ export const productsApi = {
   },
 
   getCategories: async () => {
-    const response = await api.get("/v1/categories");
+    const response = await api.get("/v1/categories", {
+      timeout: 120000,
+    });
     const payload = toObject(response.data);
     const rows = Array.isArray(payload.data) ? payload.data : [];
 

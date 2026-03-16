@@ -12,12 +12,19 @@ export type FeeComponent = {
 
 export type FeeChannel = {
   components: FeeComponent[];
+  percent?: number | string;
+  rate?: number | string;
+  percentage?: number | string;
+  total_percent?: number | string;
+  totalPercent?: number | string;
+  summary?: number | string | Record<string, unknown> | null;
 };
 
 export type CategoryFees = {
   marketplace: FeeChannel;
   shopee: FeeChannel;
   entraverse: FeeChannel;
+  tokopedia?: FeeChannel;
   tokopedia_tiktok?: FeeChannel;
 };
 
@@ -36,6 +43,7 @@ export type Category = {
   icon_svg?: string | null;
   fees: CategoryFees;
   program_garansi?: string | Record<string, unknown> | null;
+  margin_percent: number;
   min_margin: number;
   created_at?: string | null;
   updated_at?: string | null;
@@ -100,6 +108,7 @@ export type CategoryFormValues = {
 
 export type CategoryMutationInput = {
   name: string;
+  margin_percent?: number;
   min_margin: number;
   program_garansi?: string;
   fees: CategoryFees;

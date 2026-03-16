@@ -186,7 +186,10 @@ export function useProductForm() {
       return { ...prev, basic: { ...prev.basic, [field]: value } };
     });
 
-  const updateLogistics = (field: Exclude<keyof InventoryPlan, "volume">, value: number) =>
+  const updateLogistics = (
+    field: Exclude<keyof InventoryPlan, "volume" | "shippingRates">,
+    value: number
+  ) =>
     setForm((prev) => {
       const normalizedValue = Number.isFinite(value) ? value : 0;
       const nextInventoryPlan = {
@@ -214,6 +217,21 @@ export function useProductForm() {
             : prev.matrix,
       };
     });
+
+  const updateShippingRates = useCallback((nextRates: Record<MatrixPricing["shipping"], number>) => {
+    setForm((prev) => ({
+      ...prev,
+      inventoryPlan: {
+        ...prev.inventoryPlan,
+        shippingRates: {
+          ...prev.inventoryPlan.shippingRates,
+          Laut: Math.max(0, Number(nextRates.Laut) || 0),
+          Udara: Math.max(0, Number(nextRates.Udara) || 0),
+          Darat: Math.max(0, Number(nextRates.Darat) || 0),
+        },
+      },
+    }));
+  }, []);
 
   const updateField = useCallback((key: string, field: keyof MatrixPricing, value: number | string) => {
     const safeValue = typeof value === "number" ? Math.max(0, value) : value;
@@ -406,6 +424,7 @@ export function useProductForm() {
     updateField,
     handleUpdateBasicInfo,
     updateLogistics,
+    updateShippingRates,
     handleImageChange,
     handleRemoveImage,
     handleDescriptionChange,

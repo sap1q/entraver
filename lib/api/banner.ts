@@ -1,4 +1,4 @@
-import api, { apiUpload } from "@/lib/axios";
+import api, { apiUpload, isAxiosError } from "@/lib/axios";
 import { API_BASE_URL } from "@/lib/constants";
 import type {
   Banner,
@@ -97,6 +97,31 @@ const createPayload = (payload: BannerFormData): FormData => {
   return formData;
 };
 
+const extractBannerErrorMessage = (error: unknown, fallback: string): string => {
+  if (!isAxiosError(error)) {
+    return fallback;
+  }
+
+  const message = error.response?.data?.message;
+  if (typeof message === "string" && message.trim() !== "") {
+    return message;
+  }
+
+  const firstError = error.response?.data?.errors
+    ? Object.values(error.response.data.errors)[0]
+    : null;
+
+  if (Array.isArray(firstError) && typeof firstError[0] === "string" && firstError[0].trim() !== "") {
+    return firstError[0];
+  }
+
+  if (typeof firstError === "string" && firstError.trim() !== "") {
+    return firstError;
+  }
+
+  return fallback;
+};
+
 export const bannerApi = {
   async getAll(params: { withTrashed?: boolean; onlyTrashed?: boolean } = {}): Promise<Banner[]> {
     const response = await api.get<BannerApiResponse<Banner[]>>("/v1/admin/banners", {
@@ -118,40 +143,48 @@ export const bannerApi = {
   },
 
   async create(payload: BannerFormData): Promise<Banner> {
-    const response = await apiUpload.post<BannerApiResponse<Banner>>(
-      "/v1/admin/banners",
-      createPayload(payload),
-      {
-        headers: { "Content-Type": "multipart/form-data" },
+    try {
+      const response = await apiUpload.post<BannerApiResponse<Banner>>(
+        "/v1/admin/banners",
+        createPayload(payload),
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        }
+      );
+
+      const banner = extractSingleBanner(response.data);
+      if (!banner) {
+        throw new Error("Respons banner tidak valid.");
       }
-    );
 
-    const banner = extractSingleBanner(response.data);
-    if (!banner) {
-      throw new Error("Respons banner tidak valid.");
+      return banner;
+    } catch (error) {
+      throw new Error(extractBannerErrorMessage(error, "Gagal menyimpan banner."));
     }
-
-    return banner;
   },
 
   async update(id: string, payload: BannerFormData): Promise<Banner> {
     const formData = createPayload(payload);
     formData.append("_method", "PUT");
 
-    const response = await apiUpload.post<BannerApiResponse<Banner>>(
-      `/v1/admin/banners/${id}`,
-      formData,
-      {
-        headers: { "Content-Type": "multipart/form-data" },
+    try {
+      const response = await apiUpload.post<BannerApiResponse<Banner>>(
+        `/v1/admin/banners/${id}`,
+        formData,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        }
+      );
+
+      const banner = extractSingleBanner(response.data);
+      if (!banner) {
+        throw new Error("Respons banner tidak valid.");
       }
-    );
 
-    const banner = extractSingleBanner(response.data);
-    if (!banner) {
-      throw new Error("Respons banner tidak valid.");
+      return banner;
+    } catch (error) {
+      throw new Error(extractBannerErrorMessage(error, "Gagal memperbarui banner."));
     }
-
-    return banner;
   },
 
   async updateOrder(banners: BannerReorderItem[]): Promise<void> {

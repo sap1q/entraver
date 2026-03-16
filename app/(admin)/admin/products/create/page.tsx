@@ -38,6 +38,7 @@ export default function CreateProductPage() {
         shipping: row.shipping,
         shipping_cost: row.shippingCost,
         arrival_cost: row.arrivalCost,
+        margin_percent: row.marginPercent,
         purchase_price_idr: calculateFinalBeli(row),
         offline_price: row.offlinePrice,
         entraverse_price: row.entraversePrice,
@@ -86,6 +87,14 @@ export default function CreateProductPage() {
           ? { length: form.inventoryPlan.length, width: form.inventoryPlan.width, height: form.inventoryPlan.height }
           : { length: 0, width: 0, height: 0 },
         volume_m3: form.inventoryPlan.volume,
+        shipping_rates: {
+          Laut: Math.max(0, Number(form.inventoryPlan.shippingRates.Laut) || 0),
+          Udara: Math.max(0, Number(form.inventoryPlan.shippingRates.Udara) || 0),
+          Darat: Math.max(0, Number(form.inventoryPlan.shippingRates.Darat) || 0),
+        },
+        shipping_sea_rate: Math.max(0, Number(form.inventoryPlan.shippingRates.Laut) || 0),
+        shipping_air_rate: Math.max(0, Number(form.inventoryPlan.shippingRates.Udara) || 0),
+        shipping_land_rate: Math.max(0, Number(form.inventoryPlan.shippingRates.Darat) || 0),
       },
       variants: variants.map((variant) => ({ name: variant.name, options: variant.options })),
       variant_pricing: variantPricingPayload,

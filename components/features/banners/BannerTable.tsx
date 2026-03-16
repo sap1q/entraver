@@ -202,7 +202,7 @@ export function BannerTable({
               </td>
 
               <td className="px-4 py-3">
-                <div className="h-16 w-44 overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                <div className="aspect-[2/1] w-40 overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={banner.image_url}

@@ -25,8 +25,11 @@ type RawCategory = AnyRecord & {
   icon_url?: string | null;
   icon_svg?: string | null;
   fees?: unknown;
+  margin_percent?: number | string;
+  marginPercent?: number | string;
   min_margin?: number | string;
   minMargin?: number | string;
+  program_garansi?: unknown;
   deleted_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -49,6 +52,7 @@ const emptyFees = (): CategoryFees => ({
   marketplace: emptyChannel(),
   shopee: emptyChannel(),
   entraverse: emptyChannel(),
+  tokopedia: emptyChannel(),
   tokopedia_tiktok: emptyChannel(),
 });
 
@@ -60,46 +64,127 @@ const parseNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const parseRupiahNumber = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, value);
+  if (typeof value !== "string") return 0;
+  const digits = value.replace(/[^\d]/g, "");
+  if (!digits) return 0;
+  const parsed = Number(digits);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+};
+
 const isRawSvg = (value: unknown): value is string => {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
   return trimmed.startsWith("<svg") || (trimmed.startsWith("<?xml") && trimmed.includes("<svg"));
 };
 
+const isAmountValueType = (value: unknown): boolean => {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "amount" || normalized === "rp" || normalized === "rupiah";
+};
+
+const hasComponents = (value: unknown): boolean => {
+  if (!value || typeof value !== "object") return false;
+  const components = (value as { components?: unknown }).components;
+  if (!Array.isArray(components)) return false;
+
+  return components.some((component) => {
+    if (!component || typeof component !== "object") return false;
+    const row = component as Record<string, unknown>;
+    const label = String(row.label ?? "").trim();
+    const valueType = isAmountValueType(row.valueType) ? "amount" : "percent";
+    const numericValue =
+      valueType === "amount" ? parseRupiahNumber(row.value) : parseNumber(row.value);
+    const min = parseRupiahNumber(row.min);
+    const max = parseRupiahNumber(row.max);
+
+    return label !== "" || numericValue > 0 || min > 0 || max > 0;
+  });
+};
+
+const pickPreferredChannel = (...candidates: unknown[]): unknown => {
+  const populated = candidates.find((candidate) => hasComponents(candidate));
+  if (populated) return populated;
+  return candidates.find((candidate) => candidate && typeof candidate === "object") ?? null;
+};
+
 const normalizeChannel = (value: unknown): FeeChannel => {
   if (!value || typeof value !== "object") return emptyChannel();
-  const components = (value as { components?: unknown }).components;
-  if (!Array.isArray(components)) return emptyChannel();
+  const row = value as Record<string, unknown>;
+  const components = row.components;
 
   return {
-    components: components.map((component, index) => {
+    components: (Array.isArray(components) ? components : []).map((component, index) => {
       const row = (component ?? {}) as Record<string, unknown>;
+      const valueType = isAmountValueType(row.valueType) ? "amount" : "percent";
+      const normalizedValue =
+        valueType === "amount" ? parseRupiahNumber(row.value) : parseNumber(row.value);
+
       return {
         id: String(row.id ?? `${Date.now()}-${index}`),
         label: String(row.label ?? ""),
-        value: String(row.value ?? "0"),
-        valueType: row.valueType === "amount" ? "amount" : "percent",
-        min: parseNumber(row.min),
-        max: parseNumber(row.max),
+        value: String(normalizedValue),
+        valueType,
+        min: parseRupiahNumber(row.min),
+        max: parseRupiahNumber(row.max),
         notes: typeof row.notes === "string" ? row.notes : null,
       };
     }),
+    percent: typeof row.percent === "number" || typeof row.percent === "string" ? row.percent : undefined,
+    rate: typeof row.rate === "number" || typeof row.rate === "string" ? row.rate : undefined,
+    percentage:
+      typeof row.percentage === "number" || typeof row.percentage === "string"
+        ? row.percentage
+        : undefined,
+    total_percent:
+      typeof row.total_percent === "number" || typeof row.total_percent === "string"
+        ? row.total_percent
+        : undefined,
+    totalPercent:
+      typeof row.totalPercent === "number" || typeof row.totalPercent === "string"
+        ? row.totalPercent
+        : undefined,
+    summary:
+      typeof row.summary === "number" ||
+      typeof row.summary === "string" ||
+      (row.summary !== null && typeof row.summary === "object")
+        ? (row.summary as number | string | Record<string, unknown>)
+        : null,
   };
 };
 
 const normalizeFees = (value: unknown): CategoryFees => {
   if (!value || typeof value !== "object") return emptyFees();
   const payload = value as Record<string, unknown>;
+  const marketplaceSource = pickPreferredChannel(
+    payload.marketplace,
+    payload.tokopedia,
+    payload.tokopedia_tiktok
+  );
+  const tokopediaSource = pickPreferredChannel(
+    payload.tokopedia,
+    payload.tokopedia_tiktok,
+    payload.marketplace
+  );
+  const tokopediaTiktokSource = pickPreferredChannel(
+    payload.tokopedia_tiktok,
+    payload.tokopedia,
+    payload.marketplace
+  );
 
   return {
-    marketplace: normalizeChannel(payload.marketplace),
+    marketplace: normalizeChannel(marketplaceSource),
     shopee: normalizeChannel(payload.shopee),
     entraverse: normalizeChannel(payload.entraverse),
-    tokopedia_tiktok: normalizeChannel(payload.tokopedia_tiktok),
+    tokopedia: normalizeChannel(tokopediaSource),
+    tokopedia_tiktok: normalizeChannel(tokopediaTiktokSource),
   };
 };
 
 const normalizeCategory = (raw: RawCategory): Category => {
+  const marginPercent = parseNumber(raw.margin_percent ?? raw.marginPercent ?? raw.min_margin ?? raw.minMargin);
   const iconValue = (raw.icon as string | null | undefined) ?? null;
   const iconUrlValue =
     raw.icon_url ??
@@ -120,7 +205,8 @@ const normalizeCategory = (raw: RawCategory): Category => {
       (raw.program_garansi !== null && typeof raw.program_garansi === "object")
         ? (raw.program_garansi as string | Record<string, unknown>)
         : null,
-    min_margin: parseNumber(raw.min_margin ?? raw.minMargin),
+    margin_percent: marginPercent,
+    min_margin: marginPercent,
     created_at: raw.created_at ?? null,
     updated_at: raw.updated_at ?? null,
     deleted_at: raw.deleted_at ?? null,
@@ -175,7 +261,12 @@ const buildPagination = (total: number, page: number, perPage: number): Paginati
 const toFormData = (payload: CategoryMutationInput): FormData => {
   const formData = new FormData();
   formData.append("name", payload.name);
-  formData.append("min_margin", String(payload.min_margin));
+  const marginPercent =
+    typeof payload.margin_percent === "number" && Number.isFinite(payload.margin_percent)
+      ? payload.margin_percent
+      : payload.min_margin;
+  formData.append("margin_percent", String(marginPercent));
+  formData.append("min_margin", String(marginPercent));
   formData.append("fees", JSON.stringify(payload.fees));
 
   if (payload.program_garansi?.trim()) {
@@ -383,9 +474,18 @@ export const formatFeeSummary = (channel?: FeeChannel): string => {
   return components
     .map((component) => {
       const label = component.label?.trim() || "Komponen";
-      const numeric = parseNumber(component.value);
-      const value = component.valueType === "amount" ? `Rp ${numeric.toLocaleString("id-ID")}` : `${numeric}%`;
-      return `${label}: ${value}`;
+      const valueType = isAmountValueType(component.valueType) ? "amount" : "percent";
+      const numeric = valueType === "amount" ? parseRupiahNumber(component.value) : parseNumber(component.value);
+      const value = valueType === "amount" ? `Rp ${numeric.toLocaleString("id-ID")}` : `${numeric}%`;
+      const min = parseRupiahNumber(component.min);
+      const max = parseRupiahNumber(component.max);
+
+      const limits = [
+        min > 0 ? `min Rp ${min.toLocaleString("id-ID")}` : null,
+        max > 0 ? `max Rp ${max.toLocaleString("id-ID")}` : null,
+      ].filter(Boolean);
+
+      return limits.length > 0 ? `${label}: ${value} | ${limits.join(" | ")}` : `${label}: ${value}`;
     })
     .join(", ");
 };

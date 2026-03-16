@@ -16,7 +16,7 @@ const toOptionalNumber = (value: string): number | undefined => {
 };
 
 export const PriceFilter = () => {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const minInputRef = useRef<HTMLInputElement | null>(null);
   const maxInputRef = useRef<HTMLInputElement | null>(null);
   const { getFilterValue, setRangeFilter } = useProductFilters();

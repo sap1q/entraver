@@ -13,7 +13,9 @@ import type { ProductDetail } from "@/types/product.types";
 
 interface OrderSidebarProps {
   product: ProductDetail;
+  selectedPrice: number;
   selectedVariants: Record<string, string>;
+  selectedVariantSku?: string | null;
 }
 
 const STOCK_STYLE: Record<ProductDetail["stock_status"], { label: string; className: string }> = {
@@ -22,25 +24,43 @@ const STOCK_STYLE: Record<ProductDetail["stock_status"], { label: string; classN
   out_of_stock: { label: "Stok habis", className: "text-rose-600" },
 };
 
-export const OrderSidebar = ({ product, selectedVariants }: OrderSidebarProps) => {
+export const OrderSidebar = ({ product, selectedPrice, selectedVariants, selectedVariantSku }: OrderSidebarProps) => {
   const router = useRouter();
   const [quantity, setQuantity] = useState(product.min_order ?? 1);
   const { addToCart, loading, error } = useCart();
 
   const stockInfo = STOCK_STYLE[product.stock_status];
   const outOfStock = product.stock_status === "out_of_stock" || product.stock <= 0;
-  const subtotal = useMemo(() => quantity * product.price, [product.price, quantity]);
+  const subtotal = useMemo(() => quantity * selectedPrice, [quantity, selectedPrice]);
 
   const variantSummary = Object.entries(selectedVariants)
     .map(([name, value]) => `${name}: ${value}`)
     .join(", ");
 
   const handleAddToCart = async () => {
-    await addToCart(product.id, quantity, selectedVariants);
+    await addToCart(product.id, quantity, selectedVariants, {
+      name: product.name,
+      slug: product.slug,
+      image: product.image,
+      price: selectedPrice,
+      variantSku: selectedVariantSku ?? undefined,
+      stock: product.stock,
+      minOrder: product.min_order ?? 1,
+      tradeInEnabled: Boolean(product.trade_in),
+    });
   };
 
   const handleBuyNow = async () => {
-    const result = await addToCart(product.id, quantity, selectedVariants);
+    const result = await addToCart(product.id, quantity, selectedVariants, {
+      name: product.name,
+      slug: product.slug,
+      image: product.image,
+      price: selectedPrice,
+      variantSku: selectedVariantSku ?? undefined,
+      stock: product.stock,
+      minOrder: product.min_order ?? 1,
+      tradeInEnabled: Boolean(product.trade_in),
+    });
     if (result.success) {
       router.push("/checkout");
     }
@@ -85,7 +105,7 @@ export const OrderSidebar = ({ product, selectedVariants }: OrderSidebarProps) =
           <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Harga</span>
-              <span className="font-medium text-slate-800">{formatCurrencyIDR(product.price)}</span>
+              <span className="font-medium text-slate-800">{formatCurrencyIDR(selectedPrice)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Jumlah</span>
@@ -142,7 +162,7 @@ export const OrderSidebar = ({ product, selectedVariants }: OrderSidebarProps) =
               alt="Entraverse"
               width={53}
               height={82}
-              className="h-6 w-auto shrink-0 object-contain"
+              className="h-6 w-4 shrink-0 object-contain"
               unoptimized
             />
             <p className="text-[15px] font-medium leading-none text-slate-500">Dijual dan dikirim oleh Entraverse</p>

@@ -32,7 +32,18 @@ export default function DescriptionEditor({ value, onChange }: DescriptionEditor
   const normalizedValue = useMemo(() => toDescriptionHtml(value || ""), [value]);
 
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [
+      StarterKit.configure({
+        paragraph: {
+          HTMLAttributes: {
+            class: "mb-4",
+          },
+        },
+        hardBreak: {
+          keepMarks: true,
+        },
+      }),
+    ],
     content: normalizedValue,
     editorProps: {
       attributes: {
@@ -158,7 +169,8 @@ export default function DescriptionEditor({ value, onChange }: DescriptionEditor
         <EditorContent editor={editor} />
       </div>
       <p className="text-xs text-slate-500">
-        Gunakan toolbar untuk format paragraf, lalu klik <span className="font-semibold">Rapikan</span> agar struktur deskripsi lebih rapi.
+        Gunakan toolbar untuk format paragraf, lalu klik <span className="font-semibold">Rapikan</span>. Baris dengan isi hanya{" "}
+        <span className="font-semibold">-</span> akan dianggap sebagai jarak antar paragraf.
       </p>
     </section>
   );

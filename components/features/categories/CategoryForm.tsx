@@ -6,6 +6,14 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import FeeComponents from "@/components/features/categories/FeeComponents";
 import { useCategoryForm } from "@/hooks/useCategories";
+import {
+  parseWarrantyProgram,
+  serializeWarrantyProgram,
+  WARRANTY_COST_LABEL,
+  WARRANTY_PROFIT_LABEL,
+  type WarrantyComponent,
+  type WarrantyPricingConfig,
+} from "@/lib/warrantyProgram";
 import type { Category } from "@/types/category.types";
 
 const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
@@ -38,77 +46,13 @@ const resolveIconUrl = (value?: string | null): string | null => {
   return `${API_BASE_URL}/${trimmed.replace(/^\/+/, "")}`;
 };
 
-type WarrantyProgramComponent = {
-  id: string;
-  label: string;
-  valueType: "percent" | "amount";
-  value: number | string;
-  notes?: string;
-};
-
-const parseWarrantyComponents = (value: string): WarrantyProgramComponent[] => {
-  const fallback = (): WarrantyProgramComponent[] => {
-    if (!value.trim()) return [];
-      return value
-      .split(/\r?\n|,/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((label) => ({ id: crypto.randomUUID(), label, valueType: "percent" as const, value: 0 }));
-  };
-
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) {
-      return parsed
-        .map((item) =>
-          typeof item === "string"
-            ? { id: crypto.randomUUID(), label: item, valueType: "percent" as const, value: 0 }
-            : item
-        )
-        .map((item) => ({
-          id: String((item as { id?: string }).id ?? crypto.randomUUID()),
-          label: String((item as { label?: string; name?: string }).label ?? (item as { name?: string }).name ?? ""),
-          valueType: (item as { valueType?: "percent" | "amount" }).valueType === "amount" ? "amount" : "percent",
-          value: String((item as { value?: number | string }).value ?? "0"),
-          notes: String((item as { notes?: string }).notes ?? "") || undefined,
-        }));
-    }
-
-    if (parsed && typeof parsed === "object") {
-      const obj = parsed as { components?: unknown };
-      if (Array.isArray(obj.components)) {
-        return obj.components
-          .map((item) =>
-            typeof item === "string"
-              ? { id: crypto.randomUUID(), label: item, valueType: "percent" as const, value: 0 }
-              : item
-          )
-          .map((item) => ({
-            id: String((item as { id?: string }).id ?? crypto.randomUUID()),
-            label: String((item as { label?: string; name?: string }).label ?? (item as { name?: string }).name ?? ""),
-            valueType: (item as { valueType?: "percent" | "amount" }).valueType === "amount" ? "amount" : "percent",
-            value: String((item as { value?: number | string }).value ?? "0"),
-            notes: String((item as { notes?: string }).notes ?? "") || undefined,
-          }));
-      }
-    }
-
-    return fallback();
-  } catch {
-    return fallback();
+const createWarrantyId = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
   }
-};
 
-const serializeWarrantyComponents = (components: WarrantyProgramComponent[]): string =>
-  JSON.stringify({
-    components: components.map((item) => ({
-      id: item.id,
-      label: item.label,
-      valueType: item.valueType === "amount" ? "amount" : "percent",
-      value: Number(item.value) || 0,
-      notes: item.notes || null,
-    })),
-  });
+  return `warranty-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+};
 
 type CategoryFormProps = {
   mode: "create" | "edit";
@@ -150,10 +94,9 @@ export default function CategoryForm({
     ? `data:image/svg+xml;utf8,${encodeURIComponent(values.iconSvg)}`
     : resolveIconUrl(category?.icon_url ?? category?.icon ?? null);
 
-  const warrantyComponents = useMemo(
-    () => parseWarrantyComponents(values.program_garansi),
-    [values.program_garansi]
-  );
+  const warrantyProgram = useMemo(() => parseWarrantyProgram(values.program_garansi), [values.program_garansi]);
+  const warrantyComponents = warrantyProgram.components;
+  const warrantyPricing = warrantyProgram.pricing;
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -183,14 +126,39 @@ export default function CategoryForm({
     setField("removeIcon", true);
   };
 
-  const updateWarrantyComponents = (next: WarrantyProgramComponent[]) => {
-    setField("program_garansi", serializeWarrantyComponents(next));
+  const updateWarrantyProgram = (next: { components?: WarrantyComponent[]; pricing?: WarrantyPricingConfig }) => {
+    setField(
+      "program_garansi",
+      serializeWarrantyProgram({
+        components: next.components ?? warrantyComponents,
+        pricing: next.pricing ?? warrantyPricing,
+      })
+    );
+  };
+
+  const updateWarrantyComponents = (next: WarrantyComponent[]) => {
+    updateWarrantyProgram({ components: next });
+  };
+
+  const updateWarrantyPricing = (
+    target: keyof WarrantyPricingConfig,
+    patch: Partial<WarrantyPricingConfig[keyof WarrantyPricingConfig]>
+  ) => {
+    updateWarrantyProgram({
+      pricing: {
+        ...warrantyPricing,
+        [target]: {
+          ...warrantyPricing[target],
+          ...patch,
+        },
+      },
+    });
   };
 
   const addWarrantyComponent = () => {
     updateWarrantyComponents([
       ...warrantyComponents,
-      { id: crypto.randomUUID(), label: "", valueType: "percent", value: 0, notes: "" },
+      { id: createWarrantyId(), label: "", valueType: "percent", value: 0, notes: "" },
     ]);
   };
 
@@ -243,10 +211,59 @@ export default function CategoryForm({
               </button>
             </div>
 
+            <div className="space-y-2 rounded-lg border border-blue-100 bg-white p-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Kalkulasi Program Garansi</p>
+              {(
+                [
+                  {
+                    key: "cost",
+                    label: WARRANTY_COST_LABEL,
+                    helper: "Jika %, dihitung dari harga jual varian.",
+                  },
+                  {
+                    key: "profit",
+                    label: WARRANTY_PROFIT_LABEL,
+                    helper: "Jika %, dihitung dari nilai Biaya Program Garansi.",
+                  },
+                ] as const
+              ).map((row) => (
+                <div key={row.key} className="grid gap-2 md:grid-cols-12">
+                  <div className="md:col-span-5 flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                    {row.label}
+                  </div>
+                  <select
+                    value={warrantyPricing[row.key].valueType}
+                    onChange={(event) =>
+                      updateWarrantyPricing(row.key, {
+                        valueType: event.target.value === "amount" ? "amount" : "percent",
+                      })
+                    }
+                    className="md:col-span-2 h-10 rounded-lg border border-slate-200 bg-white px-2 text-sm"
+                  >
+                    <option value="percent">%</option>
+                    <option value="amount">Rp</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={0}
+                    value={Number(warrantyPricing[row.key].value) || 0}
+                    onChange={(event) =>
+                      updateWarrantyPricing(row.key, {
+                        value: Number(event.target.value) || 0,
+                      })
+                    }
+                    className="md:col-span-2 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                    placeholder="Nilai"
+                  />
+                  <p className="md:col-span-5 flex items-center text-[11px] text-slate-500">{row.helper}</p>
+                </div>
+              ))}
+            </div>
+
             {warrantyComponents.length > 0 ? (
               <div className="space-y-2">
                 {warrantyComponents.map((component, index) => (
-                  <div key={component.id} className="grid gap-2 md:grid-cols-12">
+                  <div key={component.id ?? `warranty-component-${index}`} className="grid gap-2 md:grid-cols-12">
                     <input
                       value={component.label}
                       onChange={(event) => {
@@ -316,16 +333,16 @@ export default function CategoryForm({
             )}
 
             <div className="flex flex-wrap gap-1.5">
-              {warrantyComponents.map((component) => (
+              {warrantyComponents.map((component, index) => (
                 <span
-                  key={`chip-${component.id}`}
+                  key={`chip-${component.id ?? index}`}
                   className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700"
                 >
                   {(component.label || "Komponen baru") + " - " + (component.valueType === "amount" ? "Rp" : "%") + " " + (Number(component.value) || 0)}
                   <button
                     type="button"
                     onClick={() => {
-                      const next = warrantyComponents.filter((item) => item.id !== component.id);
+                      const next = warrantyComponents.filter((_, rowIndex) => rowIndex !== index);
                       updateWarrantyComponents(next);
                     }}
                     className="rounded-full p-0.5 hover:bg-blue-100"

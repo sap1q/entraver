@@ -322,7 +322,7 @@ export default function BrandManagementPage() {
                   value={form.name}
                   onChange={(event) => handleNameChange(event.target.value)}
                   className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white"
-                  placeholder="Contoh: Logitech"
+                  placeholder=""
                 />
               </div>
 
@@ -340,7 +340,7 @@ export default function BrandManagementPage() {
                         ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500"
                         : "border-slate-200 bg-slate-50 text-slate-700 focus:border-blue-300 focus:bg-white"
                     }`}
-                    placeholder="slug-brand"
+                    placeholder=""
                   />
                   <button
                     type="button"

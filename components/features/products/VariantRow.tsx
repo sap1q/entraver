@@ -1,6 +1,7 @@
 "use client";
 
 import type { MatrixPricing, VariantCombination } from "@/types/product";
+import { calculateFinalBeli } from "@/lib/utils";
 
 type VariantRowProps = {
   combo: VariantCombination;
@@ -13,6 +14,7 @@ type VariantRowProps = {
 
 const inputBase =
   "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300";
+const channelPriceCellClass = "min-w-[170px] px-2 py-2";
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const rupiahFormatter = new Intl.NumberFormat("id-ID");
@@ -43,7 +45,7 @@ const RupiahInput = ({
       type="text"
       inputMode="numeric"
       readOnly={readOnly}
-      className={`${inputBase} pl-10 ${readOnly ? "cursor-not-allowed bg-blue-50 text-blue-700" : ""} ${className}`}
+      className={`${inputBase} pl-10 pr-3 text-right tabular-nums ${readOnly ? "cursor-not-allowed bg-blue-50 text-blue-700" : ""} ${className}`}
       value={formatRupiahInput(value)}
       onChange={(event) => onChange?.(parseRupiahInput(event.target.value))}
     />
@@ -138,34 +140,34 @@ export default function VariantRow({
       <td className="min-w-[150px] px-2 py-2">
         <RupiahInput
           value={row.arrivalCost}
-          onChange={(value) => onUpdateField(combo.key, "arrivalCost", value)}
+          readOnly
         />
       </td>
       <td className="min-w-[170px] px-2 py-2">
         <RupiahInput
-          value={row.purchasePrice * row.exchangeValue + row.arrivalCost}
+          value={calculateFinalBeli(row)}
           readOnly
         />
       </td>
-      <td className="min-w-[160px] px-2 py-2">
+      <td className={channelPriceCellClass}>
         <RupiahInput
           value={row.offlinePrice}
           onChange={(value) => onUpdateField(combo.key, "offlinePrice", value)}
         />
       </td>
-      <td className="min-w-[180px] px-2 py-2">
+      <td className={channelPriceCellClass}>
         <RupiahInput
           value={row.entraversePrice}
           onChange={(value) => onUpdateField(combo.key, "entraversePrice", value)}
         />
       </td>
-      <td className="min-w-[170px] px-2 py-2">
+      <td className={channelPriceCellClass}>
         <RupiahInput
           value={row.tokopediaPrice}
           onChange={(value) => onUpdateField(combo.key, "tokopediaPrice", value)}
         />
       </td>
-      <td className="min-w-[160px] px-2 py-2">
+      <td className={channelPriceCellClass}>
         <RupiahInput
           value={row.shopeePrice}
           onChange={(value) => onUpdateField(combo.key, "shopeePrice", value)}

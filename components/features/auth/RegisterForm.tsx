@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 
@@ -29,6 +29,8 @@ export default function RegisterForm() {
     password_confirmation: "",
     role: "staff",
   });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirmation, setShowPasswordConfirmation] = useState(false);
 
   const strength = useMemo(() => getStrength(form.password), [form.password]);
 
@@ -106,36 +108,56 @@ export default function RegisterForm() {
             <div className="space-y-1.5">
               <label htmlFor="password" className="block space-y-1.5">
                 <span className="text-sm font-medium text-slate-700">Password</span>
-                <input
-                  id="password"
-                  type="password"
-                  value={form.password}
-                  onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 outline-none transition focus:border-sky-500"
-                />
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={form.password}
+                    onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 pr-10 text-slate-900 outline-none transition focus:border-sky-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((previous) => !previous)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 transition-colors hover:text-slate-700"
+                    aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </label>
               {fieldErrors.password?.[0] ? (
                 <span className="text-xs text-rose-600">{fieldErrors.password[0]}</span>
               ) : null}
-            <div className="h-2 w-full rounded-full bg-slate-100">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  strength <= 1 ? "w-1/4 bg-rose-500" : strength === 2 ? "w-2/4 bg-amber-500" : strength === 3 ? "w-3/4 bg-blue-500" : "w-full bg-emerald-500"
-                }`}
-              />
+              <div className="h-2 w-full rounded-full bg-slate-100">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    strength <= 1 ? "w-1/4 bg-rose-500" : strength === 2 ? "w-2/4 bg-amber-500" : strength === 3 ? "w-3/4 bg-blue-500" : "w-full bg-emerald-500"
+                  }`}
+                />
+              </div>
+              <p className="text-xs text-slate-500">Strength: {strength}/4</p>
             </div>
-            <p className="text-xs text-slate-500">Strength: {strength}/4</p>
-          </div>
 
             <label htmlFor="password_confirmation" className="block space-y-1.5">
               <span className="text-sm font-medium text-slate-700">Konfirmasi Password</span>
-              <input
-                id="password_confirmation"
-                type="password"
-                value={form.password_confirmation}
-                onChange={(event) => setForm((prev) => ({ ...prev, password_confirmation: event.target.value }))}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 outline-none transition focus:border-sky-500"
-              />
+              <div className="relative">
+                <input
+                  id="password_confirmation"
+                  type={showPasswordConfirmation ? "text" : "password"}
+                  value={form.password_confirmation}
+                  onChange={(event) => setForm((prev) => ({ ...prev, password_confirmation: event.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 pr-10 text-slate-900 outline-none transition focus:border-sky-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordConfirmation((previous) => !previous)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 transition-colors hover:text-slate-700"
+                  aria-label={showPasswordConfirmation ? "Sembunyikan konfirmasi password" : "Tampilkan konfirmasi password"}
+                >
+                  {showPasswordConfirmation ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               {fieldErrors.password_confirmation?.[0] ? (
                 <span className="text-xs text-rose-600">{fieldErrors.password_confirmation[0]}</span>
               ) : null}
@@ -165,7 +187,7 @@ export default function RegisterForm() {
 
           <p className="mt-4 text-center text-sm text-slate-600">
             Sudah punya akun?{" "}
-            <Link href="/login" className="font-semibold text-blue-600 hover:underline">
+            <Link href="/auth/login" className="font-semibold text-blue-600 hover:underline">
               Login
             </Link>
           </p>

@@ -104,7 +104,9 @@ export default function CategoryDropdown({ value, onChange, error, disabled }: C
                 >
                   <CategoryIcon icon={category.icon ?? category.icon_url ?? category.icon_svg} />
                   <span>{category.name}</span>
-                  <span className="ml-auto text-xs text-slate-500">Margin: {category.min_margin}%</span>
+                  <span className="ml-auto text-xs text-slate-500">
+                    Margin: {(category.margin_percent ?? category.min_margin)}%
+                  </span>
                 </button>
               ))
             )}
@@ -117,4 +119,3 @@ export default function CategoryDropdown({ value, onChange, error, disabled }: C
     </div>
   );
 }
-

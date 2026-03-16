@@ -3,9 +3,16 @@
 import { RefreshCw, Settings2, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
-import type { MatrixPricing, VariantCombination } from "@/types/product";
+import type { MatrixPricing, ShippingRates, VariantCombination } from "@/types/product";
 import type { CategoryFees, FeeChannel } from "@/types/category.types";
-import { DEFAULT_MATRIX_ROW } from "@/lib/utils";
+import { DEFAULT_MATRIX_ROW, DEFAULT_SHIPPING_RATES } from "@/lib/utils";
+import {
+  DEFAULT_WARRANTY_PRICING,
+  WARRANTY_COST_LABEL,
+  WARRANTY_PROFIT_LABEL,
+  type WarrantyComponent,
+  type WarrantyPricingConfig,
+} from "@/lib/warrantyProgram";
 import VariantRow from "@/components/features/products/VariantRow";
 import { useVariantCalculations } from "@/hooks/useVariantCalculations";
 
@@ -14,16 +21,15 @@ type VariantTableProps = {
   matrixData: Record<string, MatrixPricing>;
   onUpdateField: (key: string, field: keyof MatrixPricing, value: number | string) => void;
   inventoryVolumeCbm?: number;
+  shippingRateDefaults: ShippingRates;
+  onShippingRatesChange: (nextRates: ShippingRates) => void;
   categoryPricing?: {
-    minMarginPercent: number;
+    marginPercent: number;
     fees: CategoryFees | null;
     currencySurcharge?: number;
-    warrantyComponents?: Array<{
-      label: string;
-      valueType: "percent" | "amount";
-      value: number;
-      notes?: string;
-    }>;
+    roundToNearest?: number;
+    warrantyComponents?: WarrantyComponent[];
+    warrantyPricing?: WarrantyPricingConfig;
   };
 };
 
@@ -61,8 +67,8 @@ const headers = [
 
 const groupedHeaders = [
   { label: "Informasi Produk", span: 1, tone: "text-slate-700 bg-slate-100/80" },
-  { label: "Harga Beli & Kurs", span: 5, tone: "text-indigo-700 bg-indigo-50" },
-  { label: "Landed Cost", span: 1, tone: "text-blue-700 bg-blue-50" },
+  { label: "Harga Beli & Kurs", span: 4, tone: "text-indigo-700 bg-indigo-50" },
+  { label: "Landed Cost", span: 2, tone: "text-blue-700 bg-blue-50" },
   { label: "Harga Jual Channel", span: 4, tone: "text-cyan-700 bg-cyan-50" },
   { label: "Operasional SKU", span: 3, tone: "text-violet-700 bg-violet-50" },
   { label: "Forecast Periode A", span: 3, tone: "text-amber-700 bg-amber-50" },
@@ -76,6 +82,12 @@ const platformLabel: Record<string, string> = {
   Shopee: "text-orange-700",
   Entraverse: "text-slate-700",
 };
+const priceChannelHeaders = new Set([
+  "Harga Jual Offline",
+  "Harga Jual Entraverse",
+  "Harga Jual Tokopedia",
+  "Harga Jual Shopee",
+]);
 
 type ExchangeMode = "auto" | "manual";
 
@@ -90,12 +102,6 @@ const BASE_EXCHANGE_RATES: Record<MatrixPricing["currency"], number> = {
   CNY: 2140,
 };
 
-const BASE_SHIPPING_RATES: Record<MatrixPricing["shipping"], number> = {
-  Laut: 7_500_000,
-  Udara: 155_000,
-  Darat: 0,
-};
-
 const SHIPPING_UNIT_LABEL: Record<MatrixPricing["shipping"], string> = {
   Laut: "CBM",
   Udara: "KG",
@@ -104,12 +110,13 @@ const SHIPPING_UNIT_LABEL: Record<MatrixPricing["shipping"], string> = {
 
 const SHIPPING_HELPER_TEXT: Record<MatrixPricing["shipping"], string> = {
   Laut: "Rumus: volume produk (CBM) x tarif laut.",
-  Udara: "Rumus: berat varian (KG) x tarif udara.",
-  Darat: "Rumus: tarif darat flat per varian.",
+  Udara: "Rumus: berat produk (KG) x tarif udara.",
+  Darat: "Rumus: biaya kedatangan darat = 0.",
 };
 
 const formatRupiah = new Intl.NumberFormat("id-ID");
 const PRICE_SYNC_FIELDS: Array<keyof MatrixPricing> = [
+  "arrivalCost",
   "offlinePrice",
   "entraversePrice",
   "tokopediaPrice",
@@ -125,85 +132,315 @@ const toNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const normalizePercent = (value: number): number => Math.max(0, value);
-const normalizeText = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
+const toRupiahNumber = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, value);
+  }
 
-const calculateFeeTotals = (channel: FeeChannel | undefined, basePrice: number) => {
+  if (typeof value !== "string") {
+    return 0;
+  }
+
+  const digits = value.replace(/[^\d]/g, "");
+  if (!digits) return 0;
+  const parsed = Number(digits);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+};
+
+const isAmountValueType = (value: unknown): boolean => {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "amount" || normalized === "rp" || normalized === "rupiah";
+};
+
+const hasFeeComponents = (channel: FeeChannel | undefined): boolean =>
+  (channel?.components?.length ?? 0) > 0;
+
+const resolveFeeSummaryPercent = (channel: FeeChannel | undefined): number => {
+  if (!channel) return 0;
+
+  const record = channel as Record<string, unknown>;
+  const nestedSummary =
+    record.summary && typeof record.summary === "object"
+      ? (record.summary as Record<string, unknown>)
+      : null;
+
+  const candidates = [
+    record.percent,
+    record.rate,
+    record.percentage,
+    record.total_percent,
+    record.totalPercent,
+    record.summary,
+    nestedSummary?.percent,
+    nestedSummary?.rate,
+    nestedSummary?.percentage,
+    nestedSummary?.total_percent,
+    nestedSummary?.totalPercent,
+    nestedSummary?.value,
+  ];
+
+  const resolved = candidates.find(
+    (value) =>
+      (typeof value === "number" && Number.isFinite(value)) ||
+      (typeof value === "string" && value.trim() !== "")
+  );
+
+  return Math.max(0, toNumber(resolved));
+};
+
+const hasFeeSignal = (channel: FeeChannel | undefined): boolean =>
+  hasFeeComponents(channel) || resolveFeeSummaryPercent(channel) > 0;
+
+const pickPreferredChannel = (...channels: Array<FeeChannel | undefined>): FeeChannel | undefined => {
+  const populated = channels.find((channel) => hasFeeSignal(channel));
+  if (populated) return populated;
+  return channels.find((channel) => Boolean(channel));
+};
+
+const normalizeText = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
+const normalizeShippingRates = (rates?: Partial<ShippingRates>): ShippingRates => ({
+  Laut: Math.max(0, Number(rates?.Laut ?? DEFAULT_SHIPPING_RATES.Laut) || 0),
+  Udara: Math.max(0, Number(rates?.Udara ?? DEFAULT_SHIPPING_RATES.Udara) || 0),
+  Darat: Math.max(0, Number(rates?.Darat ?? DEFAULT_SHIPPING_RATES.Darat) || 0),
+});
+
+const isShippingRateEqual = (left: ShippingRates, right: ShippingRates): boolean =>
+  left.Laut === right.Laut && left.Udara === right.Udara && left.Darat === right.Darat;
+
+const roundToNearest = (value: number, step: number): number =>
+  Math.round(value / step) * step;
+
+const applyRoundingRules = (value: number): number => {
+  const safeValue = Math.max(0, Number(value) || 0);
+  if (safeValue >= 500_000) {
+    return Math.max(0, roundToNearest(safeValue, 50_000) - 1_000);
+  }
+
+  if (safeValue >= 250_000) {
+    return Math.max(0, roundToNearest(safeValue, 10_000) - 1_000);
+  }
+
+  if (safeValue >= 100_000) {
+    return Math.max(0, roundToNearest(safeValue, 5_000) - 1_000);
+  }
+
+  return Math.max(0, roundToNearest(safeValue, 1_000) - 100);
+};
+
+const calculateArrivalCost = (
+  shipping: MatrixPricing["shipping"],
+  itemWeightGram: number,
+  volumeCbm: number,
+  shippingRates: Record<MatrixPricing["shipping"], number>
+): number => {
+  const shippingRate = Math.max(0, Number(shippingRates[shipping]) || 0);
+  if (shipping === "Udara") {
+    const weightKg = Math.max(0, Number(itemWeightGram) || 0) / 1000;
+    return Math.round(weightKg * shippingRate);
+  }
+
+  if (shipping === "Laut") {
+    const safeVolume = Math.max(0, Number(volumeCbm) || 0);
+    return Math.round(safeVolume * shippingRate);
+  }
+
+  return 0;
+};
+
+const calculateFeeTotals = (channel: FeeChannel | undefined, purchasePriceIdr: number) => {
   const components = channel?.components ?? [];
-  let amountTotal = 0;
+  const safePurchasePrice = Math.max(0, purchasePriceIdr);
+  let fixedTotal = 0;
   let percentTotal = 0;
 
+  if (components.length === 0) {
+    const summaryPercent = resolveFeeSummaryPercent(channel);
+    return {
+      fixedTotal: 0,
+      percentTotal: Math.max(0, summaryPercent) / 100,
+      percentDisplay: Math.max(0, summaryPercent),
+    };
+  }
+
   components.forEach((component) => {
-    const value = Math.max(0, toNumber(component.value));
-    const minValue = Math.max(0, toNumber(component.min));
-    const maxValue = Math.max(0, toNumber(component.max));
-    const isPercent = component.valueType !== "amount";
+    const isAmount = isAmountValueType(component.valueType);
+    const value = isAmount
+      ? toRupiahNumber(component.value)
+      : Math.max(0, toNumber(component.value));
+    const minValue = toRupiahNumber(component.min);
+    const maxValue = toRupiahNumber(component.max);
 
-    let fee = isPercent ? basePrice * (value / 100) : value;
-    if (minValue > 0) fee = Math.max(fee, minValue);
-    if (maxValue > 0) fee = Math.min(fee, maxValue);
+    if (isAmount) {
+      let fee = value;
+      if (minValue > 0) fee = Math.max(fee, minValue);
+      if (maxValue > 0) fee = Math.min(fee, maxValue);
 
-    amountTotal += Math.max(0, fee);
-    if (isPercent) percentTotal += value;
+      fixedTotal += Math.max(0, fee);
+      return;
+    }
+
+    let effectiveRate = Math.max(0, value) / 100;
+
+    if (safePurchasePrice > 0) {
+      if (maxValue > 0) {
+        effectiveRate = Math.min(effectiveRate, maxValue / safePurchasePrice);
+      }
+      if (minValue > 0) {
+        effectiveRate = Math.max(effectiveRate, minValue / safePurchasePrice);
+      }
+    }
+
+    percentTotal += Math.max(0, effectiveRate);
   });
 
   return {
-    amountTotal: Math.round(amountTotal),
-    percentTotal: normalizePercent(percentTotal),
+    fixedTotal: Math.round(fixedTotal),
+    percentTotal,
+    percentDisplay: percentTotal * 100,
   };
 };
 
-const buildAutoChannelPrices = (
-  combo: VariantCombination,
-  row: MatrixPricing,
-  pricing: VariantTableProps["categoryPricing"]
-): Pick<
-  MatrixPricing,
-  "offlinePrice" | "entraversePrice" | "tokopediaPrice" | "tiktokPrice" | "shopeePrice" | "tokopediaFee" | "tiktokFee" | "shopeeFee"
-> => {
-  const minMarginPercent = Math.max(0, toNumber(pricing?.minMarginPercent));
-  const currencySurcharge = Math.max(0, toNumber(pricing?.currencySurcharge ?? 50));
+const calculateSellingPrice = (
+  purchasePriceIdr: number,
+  fixedFeeAmount: number,
+  marginRate: number,
+  platformFeeRate: number
+): number => {
+  const safePurchasePrice = Math.max(0, purchasePriceIdr);
+  const safeFixedFee = Math.max(0, fixedFeeAmount);
+  const denominator = 1 - Math.max(0, marginRate) - Math.max(0, platformFeeRate);
+
+  if (denominator <= 0) {
+    return safePurchasePrice + safeFixedFee;
+  }
+
+  return (safePurchasePrice + safeFixedFee) / denominator;
+};
+
+const hasWarrantyPricing = (pricing: WarrantyPricingConfig | undefined): boolean => {
+  if (!pricing) return false;
+  const costValue = Math.max(0, toNumber(pricing.cost?.value ?? 0));
+  const profitValue = Math.max(0, toNumber(pricing.profit?.value ?? 0));
+  if (costValue > 0) return true;
+  return pricing.profit?.valueType === "amount" && profitValue > 0;
+};
+
+const hasOneYearWarranty = (combo: VariantCombination): boolean =>
+  Object.entries(combo.values ?? {}).some(([key, value]) => {
+    const normalizedKey = normalizeText(String(key ?? ""));
+    const normalizedValue = normalizeText(String(value ?? ""));
+    if (!normalizedKey.includes("garansi")) return false;
+    if (!normalizedValue || normalizedValue.includes("tanpa")) return false;
+
+    return /(^|[^0-9])1\s*tahun/.test(normalizedValue) || normalizedValue.includes("1th") || normalizedValue.includes("1 th");
+  });
+
+const applyWarrantyMultiplier = (combo: VariantCombination, basePrice: number): number =>
+  hasOneYearWarranty(combo) ? basePrice * 1.06 : basePrice;
+
+const calculatePurchasePriceIdr = (
+  purchasePrice: number,
+  exchangeRate: number,
+  arrivalCost: number
+): number => Math.max(0, Math.round((Math.max(0, purchasePrice) * Math.max(0, exchangeRate)) + Math.max(0, arrivalCost)));
+
+const getSelectedCategoryConfig = (pricing: VariantTableProps["categoryPricing"]) => {
   const fees = pricing?.fees;
-  const marketplaceChannel = fees?.marketplace ?? fees?.tokopedia_tiktok;
-  const hasEntraverseComponents = (fees?.entraverse?.components?.length ?? 0) > 0;
-  const entraverseChannel = hasEntraverseComponents ? fees?.entraverse : marketplaceChannel;
-
-  const usdSgdSurcharge = row.currency === "USD" || row.currency === "SGD" ? currencySurcharge : 0;
-  const landedCost = Math.max(0, row.purchasePrice * row.exchangeValue + row.arrivalCost + row.shippingCost);
-  const baseRecommended = Math.round((landedCost + usdSgdSurcharge) * (1 + minMarginPercent / 100));
-
-  const warrantyOption = (() => {
-    const warrantyEntry = Object.entries(combo.values ?? {}).find(([key]) => normalizeText(key) === "garansi");
-    return warrantyEntry ? String(warrantyEntry[1] ?? "").trim() : "";
-  })();
-
-  const warrantyComponent = (pricing?.warrantyComponents ?? []).find(
-    (item) => normalizeText(item.label) === normalizeText(warrantyOption)
+  const tokopediaChannel = pickPreferredChannel(
+    fees?.tokopedia,
+    fees?.tokopedia_tiktok,
+    fees?.marketplace
+  );
+  const tiktokChannel = pickPreferredChannel(
+    fees?.tokopedia_tiktok,
+    fees?.tokopedia,
+    fees?.marketplace
   );
 
-  const warrantyAdjustment =
-    warrantyComponent && warrantyOption
-      ? warrantyComponent.valueType === "amount"
-        ? Math.round(Math.max(0, toNumber(warrantyComponent.value)))
-        : Math.round(baseRecommended * (Math.max(0, toNumber(warrantyComponent.value)) / 100))
-      : 0;
+  return {
+    marginPercent: Math.max(0, toNumber(pricing?.marginPercent)),
+    warrantyComponents: pricing?.warrantyComponents ?? [],
+    warrantyPricing: {
+      cost: {
+        valueType: pricing?.warrantyPricing?.cost?.valueType === "amount" ? "amount" : "percent",
+        value: Math.max(0, toNumber(pricing?.warrantyPricing?.cost?.value ?? DEFAULT_WARRANTY_PRICING.cost.value)),
+      },
+      profit: {
+        valueType: pricing?.warrantyPricing?.profit?.valueType === "amount" ? "amount" : "percent",
+        value: Math.max(0, toNumber(pricing?.warrantyPricing?.profit?.value ?? DEFAULT_WARRANTY_PRICING.profit.value)),
+      },
+    },
+    tokopediaChannel,
+    tiktokChannel,
+    shopeeChannel: fees?.shopee,
+    entraverseChannel: fees?.entraverse,
+  };
+};
 
-  const baseWithWarranty = baseRecommended + warrantyAdjustment;
+const updateComputedPricingForRow = (
+  combo: VariantCombination,
+  row: MatrixPricing,
+  pricing: VariantTableProps["categoryPricing"],
+  inventoryVolumeCbm: number,
+  shippingRates: Record<MatrixPricing["shipping"], number>
+): Pick<
+  MatrixPricing,
+  "arrivalCost" | "offlinePrice" | "entraversePrice" | "tokopediaPrice" | "tiktokPrice" | "shopeePrice" | "tokopediaFee" | "tiktokFee" | "shopeeFee"
+> => {
+  const categoryConfig = getSelectedCategoryConfig(pricing);
+  const exchangeRate = Math.max(0, toNumber(row.exchangeValue));
+  const arrivalCost = calculateArrivalCost(row.shipping, row.itemWeight, inventoryVolumeCbm, shippingRates);
+  const purchasePriceIdr = calculatePurchasePriceIdr(row.purchasePrice, exchangeRate, arrivalCost);
+  const marginRate = Math.max(0, categoryConfig.marginPercent) / 100;
 
-  const entraverseFee = calculateFeeTotals(entraverseChannel, baseWithWarranty);
-  const tokopediaFee = calculateFeeTotals(marketplaceChannel, baseWithWarranty);
-  const tiktokFee = calculateFeeTotals(marketplaceChannel, baseWithWarranty);
-  const shopeeFee = calculateFeeTotals(fees?.shopee, baseWithWarranty);
+  const entraverseFee = calculateFeeTotals(categoryConfig.entraverseChannel, purchasePriceIdr);
+  const tokopediaFee = calculateFeeTotals(categoryConfig.tokopediaChannel, purchasePriceIdr);
+  const tiktokFee = calculateFeeTotals(categoryConfig.tiktokChannel, purchasePriceIdr);
+  const shopeeFee = calculateFeeTotals(categoryConfig.shopeeChannel, purchasePriceIdr);
+
+  const offlineBase = calculateSellingPrice(purchasePriceIdr, 0, marginRate, 0);
+  const entraverseBase = calculateSellingPrice(
+    purchasePriceIdr,
+    entraverseFee.fixedTotal,
+    marginRate,
+    entraverseFee.percentTotal
+  );
+  const tokopediaBase = calculateSellingPrice(
+    purchasePriceIdr,
+    tokopediaFee.fixedTotal,
+    marginRate,
+    tokopediaFee.percentTotal
+  );
+  const tiktokBase = calculateSellingPrice(
+    purchasePriceIdr,
+    tiktokFee.fixedTotal,
+    marginRate,
+    tiktokFee.percentTotal
+  );
+  const shopeeBase = calculateSellingPrice(
+    purchasePriceIdr,
+    shopeeFee.fixedTotal,
+    marginRate,
+    shopeeFee.percentTotal
+  );
+
+  const offlineWithWarranty = applyWarrantyMultiplier(combo, offlineBase);
+  const entraverseWithWarranty = applyWarrantyMultiplier(combo, entraverseBase);
+  const tokopediaWithWarranty = applyWarrantyMultiplier(combo, tokopediaBase);
+  const tiktokWithWarranty = applyWarrantyMultiplier(combo, tiktokBase);
+  const shopeeWithWarranty = applyWarrantyMultiplier(combo, shopeeBase);
 
   return {
-    offlinePrice: baseWithWarranty,
-    entraversePrice: baseWithWarranty + entraverseFee.amountTotal,
-    tokopediaPrice: baseWithWarranty + tokopediaFee.amountTotal,
-    tiktokPrice: baseWithWarranty + tiktokFee.amountTotal,
-    shopeePrice: baseWithWarranty + shopeeFee.amountTotal,
-    tokopediaFee: tokopediaFee.percentTotal,
-    tiktokFee: tiktokFee.percentTotal,
-    shopeeFee: shopeeFee.percentTotal,
+    arrivalCost,
+    offlinePrice: applyRoundingRules(offlineWithWarranty),
+    entraversePrice: applyRoundingRules(entraverseWithWarranty),
+    tokopediaPrice: applyRoundingRules(tokopediaWithWarranty),
+    tiktokPrice: applyRoundingRules(tiktokWithWarranty),
+    shopeePrice: applyRoundingRules(shopeeWithWarranty),
+    tokopediaFee: tokopediaFee.percentDisplay,
+    tiktokFee: tiktokFee.percentDisplay,
+    shopeeFee: shopeeFee.percentDisplay,
   };
 };
 
@@ -212,6 +449,8 @@ export default function VariantTable({
   matrixData,
   onUpdateField,
   inventoryVolumeCbm = 0,
+  shippingRateDefaults,
+  onShippingRatesChange,
   categoryPricing,
 }: VariantTableProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -221,8 +460,8 @@ export default function VariantTable({
   const [rateCurrency, setRateCurrency] = useState<MatrixPricing["currency"]>("SGD");
   const [rateInput, setRateInput] = useState<number>(BASE_EXCHANGE_RATES.SGD);
   const [shippingMethod, setShippingMethod] = useState<MatrixPricing["shipping"]>("Laut");
-  const [shippingRates, setShippingRates] = useState<Record<MatrixPricing["shipping"], number>>(BASE_SHIPPING_RATES);
-  const [shippingRateInput, setShippingRateInput] = useState<number>(BASE_SHIPPING_RATES.Laut);
+  const [shippingRates, setShippingRates] = useState<ShippingRates>(() => normalizeShippingRates(shippingRateDefaults));
+  const [shippingRateInput, setShippingRateInput] = useState<number>(() => normalizeShippingRates(shippingRateDefaults).Laut);
   const [lastRateSyncAt, setLastRateSyncAt] = useState<Date>(new Date());
   const { calculateVariant } = useVariantCalculations();
 
@@ -232,11 +471,20 @@ export default function VariantTable({
       const calculated = calculateVariant({ ...DEFAULT_MATRIX_ROW, ...(matrixData[combo.key] ?? {}) });
       result[combo.key] = {
         ...calculated,
-        ...buildAutoChannelPrices(combo, calculated, categoryPricing),
+        ...updateComputedPricingForRow(combo, calculated, categoryPricing, inventoryVolumeCbm, shippingRates),
       };
     });
     return result;
-  }, [calculateVariant, categoryPricing, combinations, matrixData]);
+  }, [calculateVariant, categoryPricing, combinations, inventoryVolumeCbm, matrixData, shippingRates]);
+
+  useEffect(() => {
+    const normalized = normalizeShippingRates(shippingRateDefaults);
+    setShippingRates((prev) => (isShippingRateEqual(prev, normalized) ? prev : normalized));
+  }, [shippingRateDefaults]);
+
+  useEffect(() => {
+    setShippingRateInput(shippingRates[shippingMethod]);
+  }, [shippingMethod, shippingRates]);
 
   useEffect(() => {
     if (exchangeMode !== "auto") return;
@@ -285,37 +533,25 @@ export default function VariantTable({
 
   const handleApplyShippingRate = () => {
     const normalizedRate = Math.max(0, Number(shippingRateInput) || 0);
-    setShippingRates((prev) => ({
-      ...prev,
-      [shippingMethod]: normalizedRate,
-    }));
+    setShippingRates((prev) => {
+      const next = {
+        ...prev,
+        [shippingMethod]: normalizedRate,
+      };
+      onShippingRatesChange(next);
+      return next;
+    });
   };
 
   const handleResetShippingRates = () => {
-    setShippingRates(BASE_SHIPPING_RATES);
-    setShippingRateInput(BASE_SHIPPING_RATES[shippingMethod]);
+    const nextRates = { ...DEFAULT_SHIPPING_RATES };
+    setShippingRates(nextRates);
+    onShippingRatesChange(nextRates);
   };
 
   const handleApplyShippingSettings = () => {
     combinations.forEach((combo) => {
-      const row = normalizedRows[combo.key];
-      if (!row) return;
-
-      const shippingRate = Math.max(0, Number(shippingRates[shippingMethod]) || 0);
-      const weightKg = Math.max(0, Number(row.itemWeight) || 0) / 1000;
-      const volumeCbm = Math.max(0, Number(inventoryVolumeCbm) || 0);
-
-      let computedArrivalCost = 0;
-      if (shippingMethod === "Udara") {
-        computedArrivalCost = Math.round(weightKg * shippingRate);
-      } else if (shippingMethod === "Laut") {
-        computedArrivalCost = Math.round(volumeCbm * shippingRate);
-      } else {
-        computedArrivalCost = Math.round(shippingRate);
-      }
-
       onUpdateField(combo.key, "shipping", shippingMethod);
-      onUpdateField(combo.key, "arrivalCost", computedArrivalCost);
     });
   };
 
@@ -348,11 +584,26 @@ export default function VariantTable({
                     <h3 className="text-sm font-semibold text-slate-800">Sistem Kurs (Hybrid)</h3>
                     <p className="mt-1 text-xs text-slate-500">Atur kurs global atau aktifkan mode manual per varian.</p>
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Auto pricing: kategori terpilih (margin + fees) dipakai otomatis. Kurs USD/SGD dikenakan tambahan
-                      Rp {formatRupiah.format(Math.max(0, toNumber(categoryPricing?.currencySurcharge ?? 50)))}.
+                      Auto pricing: harga beli mengikuti nilai tukar yang diinput, fee kategori dihitung dari harga beli
+                      rupiah, dan opsi Garansi 1 Tahun memakai multiplier fixed 1.06 sebelum pembulatan akhir.
                     </p>
-                    {(categoryPricing?.warrantyComponents?.length ?? 0) > 0 ? (
+                    {hasWarrantyPricing(categoryPricing?.warrantyPricing) ||
+                    (categoryPricing?.warrantyComponents?.length ?? 0) > 0 ? (
                       <div className="mt-2 flex flex-wrap gap-1.5">
+                        {hasWarrantyPricing(categoryPricing?.warrantyPricing) ? (
+                          <>
+                            <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">
+                              {WARRANTY_COST_LABEL}:{" "}
+                              {categoryPricing?.warrantyPricing?.cost?.valueType === "amount" ? "Rp" : "%"}{" "}
+                              {Math.max(0, toNumber(categoryPricing?.warrantyPricing?.cost?.value ?? 0))}
+                            </span>
+                            <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-medium text-blue-700">
+                              {WARRANTY_PROFIT_LABEL}:{" "}
+                              {categoryPricing?.warrantyPricing?.profit?.valueType === "amount" ? "Rp" : "%"}{" "}
+                              {Math.max(0, toNumber(categoryPricing?.warrantyPricing?.profit?.value ?? 0))}
+                            </span>
+                          </>
+                        ) : null}
                         {categoryPricing?.warrantyComponents?.map((component) => (
                           <span
                             key={`warranty-${component.label}`}
@@ -441,7 +692,7 @@ export default function VariantTable({
                   <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <h3 className="text-sm font-semibold text-slate-800">Pengaturan Ongkir</h3>
                     <p className="mt-1 text-xs text-slate-500">
-                      Terapkan tarif otomatis berdasarkan metode pengiriman.
+                      Biaya kedatangan dihitung real-time berdasarkan metode pengiriman per varian.
                     </p>
 
                     <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr,1.4fr]">
@@ -514,10 +765,10 @@ export default function VariantTable({
                         onClick={handleApplyShippingSettings}
                         className="h-9 rounded-lg border border-blue-200 bg-white px-3 text-xs font-semibold text-blue-600 transition hover:bg-blue-50"
                       >
-                        Set Harga Ongkir
+                        Set Metode Pengiriman
                       </button>
                       <span className="text-[11px] text-slate-500">
-                        {combinations.length} varian akan diperbarui.
+                        Terapkan metode ini ke semua varian ({combinations.length} varian).
                       </span>
                     </div>
                   </section>
@@ -545,10 +796,19 @@ export default function VariantTable({
             <tr>
               {headers.map((header, index) => {
                 const isSticky = index === 0;
+                const isPriceChannelHeader = priceChannelHeaders.has(header);
                 const renderedHeader = (() => {
+                  if (header === "Harga Jual Offline") {
+                    return (
+                      <span className="inline-flex items-center justify-center whitespace-nowrap">
+                        Harga Jual Offline
+                      </span>
+                    );
+                  }
+
                   if (header === "Harga Jual Tokopedia") {
                     return (
-                      <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center justify-center gap-1 whitespace-nowrap">
                         <span>Harga Jual</span>
                         <span className={platformLabel.Tokopedia}>Tokopedia</span>
                       </span>
@@ -557,7 +817,7 @@ export default function VariantTable({
 
                   if (header === "Harga Jual Shopee") {
                     return (
-                      <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center justify-center gap-1 whitespace-nowrap">
                         <span>Harga Jual</span>
                         <span className={platformLabel.Shopee}>Shopee</span>
                       </span>
@@ -566,7 +826,7 @@ export default function VariantTable({
 
                   if (header === "Harga Jual Entraverse") {
                     return (
-                      <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center justify-center gap-1 whitespace-nowrap">
                         <span>Harga Jual</span>
                         <span className={platformLabel.Entraverse}>Entraverse</span>
                       </span>
@@ -579,7 +839,7 @@ export default function VariantTable({
                 return (
                   <th
                     key={header}
-                    className={`border-b border-slate-200 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 ${isSticky ? "sticky left-0 z-20 bg-slate-50 shadow-[4px_0_8px_rgba(0,0,0,0.04)]" : ""}`}
+                    className={`border-b border-slate-200 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 ${isPriceChannelHeader ? "whitespace-nowrap text-center" : ""} ${isSticky ? "sticky left-0 z-20 bg-slate-50 shadow-[4px_0_8px_rgba(0,0,0,0.04)]" : ""}`}
                   >
                     {renderedHeader}
                   </th>

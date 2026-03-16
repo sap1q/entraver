@@ -1,9 +1,10 @@
+"use client";
+
 import { Suspense } from "react";
 import { ProductsProvider } from "@/hooks/useProducts";
 import { ProductGrid } from "@/components/features/products/ProductGrid";
 import { ProductGridSkeleton } from "@/components/features/products/ProductGridSkeleton";
 import { ProductSort } from "@/components/features/products/ProductSort";
-import { ProductPagination } from "@/components/features/products/ProductPagination";
 import { ProductBreadcrumb } from "@/components/features/products/ProductBreadcrumb";
 import { ProductViewToggle } from "@/components/features/products/ProductViewToggle";
 import { ActiveFilters } from "@/components/features/products/ProductFilters/ActiveFilters";
@@ -17,15 +18,15 @@ export const ProductListingPage = ({ forcedCategory }: ProductListingPageProps) 
   return (
     <ProductsProvider forcedCategory={forcedCategory}>
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-        <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           <ProductBreadcrumb />
 
           <div className="mt-5 lg:hidden">
             <FilterSidebar mode="mobile" />
           </div>
 
-          <div className="mt-6 flex gap-8">
-            <aside className="hidden w-72 flex-shrink-0 lg:block">
+          <div className="mt-6 flex gap-6 xl:gap-8">
+            <aside className="hidden w-64 flex-shrink-0 lg:block xl:w-72">
               <FilterSidebar mode="desktop" />
             </aside>
 
@@ -39,13 +40,9 @@ export const ProductListingPage = ({ forcedCategory }: ProductListingPageProps) 
                 </div>
               </div>
 
-              <Suspense fallback={<ProductGridSkeleton count={8} />}>
+              <Suspense fallback={<ProductGridSkeleton count={10} />}>
                 <ProductGrid />
               </Suspense>
-
-              <div className="mt-12">
-                <ProductPagination />
-              </div>
             </main>
           </div>
         </div>

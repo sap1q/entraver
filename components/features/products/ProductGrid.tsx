@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertTriangle, RefreshCcw } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { AlertTriangle, Loader2, RefreshCcw } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useProductsContext } from "@/hooks/useProducts";
 import { cn } from "@/lib/utils";
@@ -13,8 +14,42 @@ const getViewMode = (view: string | null): "grid" | "list" => {
 
 export const ProductGrid = () => {
   const searchParams = useSearchParams();
-  const { products, loading, error, meta, refetch } = useProductsContext();
+  const { products, loading, loadingMore, hasMore, error, meta, refetch, loadMore } = useProductsContext();
   const view = getViewMode(searchParams.get("view"));
+  const loadMoreTriggerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (loading || !hasMore || error) {
+      return;
+    }
+
+    const target = loadMoreTriggerRef.current;
+    if (!target) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) {
+          return;
+        }
+
+        void loadMore();
+      },
+      {
+        root: null,
+        rootMargin: "400px 0px",
+        threshold: 0,
+      }
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [error, hasMore, loadMore, loading]);
 
   if (loading) {
     return <ProductGridSkeleton count={8} view={view} />;
@@ -48,8 +83,8 @@ export const ProductGrid = () => {
     );
   }
 
-  const startItem = meta ? (meta.current_page - 1) * meta.per_page + 1 : 1;
-  const endItem = meta ? Math.min(meta.current_page * meta.per_page, meta.total) : products.length;
+  const startItem = products.length > 0 ? 1 : 0;
+  const endItem = meta ? Math.min(products.length, meta.total) : products.length;
   const total = meta?.total ?? products.length;
 
   return (
@@ -62,14 +97,43 @@ export const ProductGrid = () => {
 
       <div
         className={cn(
-          "grid gap-4 md:gap-5",
-          view === "list" ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          "grid gap-3 md:gap-4",
+          view === "list" ? "grid-cols-1" : "grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
         )}
       >
         {products.map((product) => (
           <ProductCard key={product.id} product={product} view={view} />
         ))}
+
+        {loadingMore
+          ? Array.from({ length: view === "list" ? 2 : 5 }).map((_, index) => (
+              <article
+                key={`load-more-skeleton-${index}`}
+                className={cn(
+                  "overflow-hidden rounded-2xl border border-slate-200 bg-white",
+                  view === "list" ? "md:flex md:min-h-[220px]" : ""
+                )}
+              >
+                <div className={cn("animate-pulse bg-slate-200", view === "list" ? "md:w-44" : "aspect-square")} />
+                <div className="flex-1 space-y-3 p-4">
+                  <div className="h-3 w-28 animate-pulse rounded bg-slate-200" />
+                  <div className="h-4 w-full animate-pulse rounded bg-slate-200" />
+                  <div className="h-4 w-4/5 animate-pulse rounded bg-slate-200" />
+                  <div className="h-6 w-24 animate-pulse rounded bg-slate-200" />
+                </div>
+              </article>
+            ))
+          : null}
       </div>
+
+      {loadingMore ? (
+        <div className="flex items-center justify-center gap-2 pt-2 text-sm font-medium text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Memuat produk lainnya...
+        </div>
+      ) : null}
+
+      {hasMore ? <div ref={loadMoreTriggerRef} className="h-1 w-full" aria-hidden /> : null}
     </div>
   );
 };

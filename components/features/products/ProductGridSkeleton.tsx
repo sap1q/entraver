@@ -9,8 +9,8 @@ export const ProductGridSkeleton = ({ count = 8, view = "grid" }: ProductGridSke
   return (
     <div
       className={cn(
-        "grid gap-4 md:gap-5",
-        view === "list" ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        "grid gap-3 md:gap-4",
+        view === "list" ? "grid-cols-1" : "grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
       )}
     >
       {Array.from({ length: count }).map((_, index) => (

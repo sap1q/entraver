@@ -1,5 +1,5 @@
-import RegisterForm from "@/components/features/auth/RegisterForm";
+import { redirect } from "next/navigation";
 
 export default function RegisterPage() {
-  return <RegisterForm />;
+  redirect("/auth/register");
 }

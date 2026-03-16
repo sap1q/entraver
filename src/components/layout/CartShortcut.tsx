@@ -2,17 +2,11 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { ShoppingCart } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-
-type CartItem = {
-  id: string;
-  name: string;
-  price: number;
-  quantity: number;
-};
-
-const CART_STORAGE_KEY = "entraverse_cart_items";
+import { useCart } from "@/hooks/useCart";
+import { formatCurrencyIDR } from "@/lib/utils/formatter";
 
 const panelMotion = {
   hidden: { opacity: 0, scale: 0, y: -8 },
@@ -30,62 +24,21 @@ const panelMotion = {
   },
 } as const;
 
-const rupiah = new Intl.NumberFormat("id-ID");
-
-const asCartItems = (value: unknown): CartItem[] => {
-  if (!Array.isArray(value)) return [];
-
-  return value
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
-      const id = typeof row.id === "string" ? row.id : null;
-      const name = typeof row.name === "string" ? row.name : null;
-      const price = Number(row.price ?? 0);
-      const quantity = Number(row.quantity ?? row.qty ?? 1);
-
-      if (!id || !name || !Number.isFinite(price) || price < 0) return null;
-
-      return {
-        id,
-        name,
-        price,
-        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
-      } satisfies CartItem;
-    })
-    .filter((item): item is CartItem => item !== null);
+const formatVariantSummary = (variants: Record<string, string>): string => {
+  const entries = Object.entries(variants);
+  if (entries.length === 0) return "Varian default";
+  return entries.map(([name, value]) => `${name}: ${value}`).join(", ");
 };
 
 export function CartShortcut() {
   const rootRef = useRef<HTMLDivElement>(null);
+  const { items, cartCount, refreshCart } = useCart();
 
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<CartItem[]>([]);
-
-  const refreshItems = () => {
-    if (typeof window === "undefined") return;
-
-    try {
-      const raw = window.localStorage.getItem(CART_STORAGE_KEY);
-      if (!raw) {
-        setItems([]);
-        return;
-      }
-      const parsed = JSON.parse(raw) as unknown;
-      setItems(asCartItems(parsed));
-    } catch {
-      setItems([]);
-    }
-  };
-
-  useEffect(() => {
-    refreshItems();
-  }, []);
 
   useEffect(() => {
     if (!open) return;
-
-    refreshItems();
+    void refreshCart({ silent: true });
 
     const onClickOutside = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
@@ -106,12 +59,7 @@ export function CartShortcut() {
       document.removeEventListener("mousedown", onClickOutside);
       document.removeEventListener("keydown", onEscape);
     };
-  }, [open]);
-
-  const cartCount = useMemo(
-    () => items.reduce((acc, item) => acc + item.quantity, 0),
-    [items]
-  );
+  }, [open, refreshCart]);
 
   const subtotal = useMemo(
     () => items.reduce((acc, item) => acc + item.price * item.quantity, 0),
@@ -166,13 +114,35 @@ export function CartShortcut() {
               <>
                 <ul className="max-h-[260px] space-y-2 overflow-auto pr-1">
                   {items.map((item) => (
-                    <li key={item.id} className="rounded-xl border border-slate-200 px-3 py-2">
-                      <p className="truncate text-sm font-medium text-slate-800">{item.name}</p>
-                      <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                        <span>Qty {item.quantity}</span>
-                        <span className="font-semibold text-slate-700">
-                          Rp {rupiah.format(item.price * item.quantity)}
-                        </span>
+                    <li key={item.id} className="rounded-xl border border-slate-200 px-3 py-3">
+                      <div className="flex items-start gap-3">
+                        <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                          <Image
+                            src={item.image}
+                            alt={item.name}
+                            fill
+                            sizes="56px"
+                            className="object-cover"
+                            unoptimized
+                          />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="line-clamp-2 text-sm font-semibold text-slate-800">{item.name}</p>
+                            <div className="shrink-0 text-right">
+                              <p className="text-[11px] text-slate-400">Qty</p>
+                              <p className="text-xs font-semibold text-slate-600">{item.quantity}</p>
+                            </div>
+                          </div>
+
+                          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+                            {formatVariantSummary(item.variants)}
+                          </p>
+                          <p className="mt-1 text-base font-bold text-slate-900">
+                            {formatCurrencyIDR(item.price * item.quantity)}
+                          </p>
+                        </div>
                       </div>
                     </li>
                   ))}
@@ -181,7 +151,7 @@ export function CartShortcut() {
                 <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-600">Subtotal</span>
-                    <span className="font-semibold text-slate-900">Rp {rupiah.format(subtotal)}</span>
+                    <span className="font-semibold text-slate-900">{formatCurrencyIDR(subtotal)}</span>
                   </div>
                 </div>
 
@@ -209,4 +179,3 @@ export function CartShortcut() {
     </div>
   );
 }
-

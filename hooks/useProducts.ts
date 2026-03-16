@@ -7,6 +7,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -27,11 +28,14 @@ type UpdateFilterOptions = {
 interface UseProductsResult {
   products: Product[];
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   error: string | null;
   meta: ProductApiResponse["meta"] | null;
   filters: ProductFilters;
   updateFilters: (newFilters: UpdateFiltersInput, options?: UpdateFilterOptions) => void;
   clearFilters: () => void;
+  loadMore: () => Promise<void>;
   refetch: () => Promise<void>;
 }
 
@@ -93,8 +97,13 @@ const parseNumberFilters = (
 const useProductsState = (forcedCategory?: string): UseProductsResult => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  const [hasMore, setHasMore] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<ProductApiResponse["meta"] | null>(null);
+  const requestVersionRef = useRef(0);
+  const loadMoreInFlightRef = useRef(false);
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -146,30 +155,91 @@ const useProductsState = (forcedCategory?: string): UseProductsResult => {
   const filters = useMemo(() => buildFilters(), [buildFilters]);
 
   const fetchProducts = useCallback(async () => {
+    const requestVersion = ++requestVersionRef.current;
+
+    loadMoreInFlightRef.current = false;
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
 
     try {
       const response = await productsApi.getProducts(filters);
+      if (requestVersion !== requestVersionRef.current) return;
 
       if (!response.success) {
         setProducts([]);
         setMeta(null);
+        setCurrentPage(1);
+        setHasMore(false);
         setError("Gagal memuat daftar produk.");
         return;
       }
 
       setProducts(response.data);
       setMeta(response.meta);
+      const resolvedCurrentPage = Math.max(1, Number(response.meta.current_page || filters.page || 1));
+      const resolvedLastPage = Math.max(resolvedCurrentPage, Number(response.meta.last_page || 1));
+      setCurrentPage(resolvedCurrentPage);
+      setHasMore(resolvedCurrentPage < resolvedLastPage);
     } catch (fetchError) {
+      if (requestVersion !== requestVersionRef.current) return;
       console.error(fetchError);
       setProducts([]);
       setMeta(null);
+      setCurrentPage(1);
+      setHasMore(false);
       setError("Gagal memuat produk. Silakan coba lagi.");
     } finally {
+      if (requestVersion !== requestVersionRef.current) return;
       setLoading(false);
     }
   }, [filters]);
+
+  const loadMore = useCallback(async () => {
+    if (loading || loadingMore || !hasMore || loadMoreInFlightRef.current) {
+      return;
+    }
+
+    const requestVersion = requestVersionRef.current;
+    const nextPage = currentPage + 1;
+
+    loadMoreInFlightRef.current = true;
+    setLoadingMore(true);
+
+    try {
+      const response = await productsApi.loadMoreProducts({
+        ...filters,
+        page: nextPage,
+      });
+      if (requestVersion !== requestVersionRef.current) return;
+
+      if (!response.success) {
+        setHasMore(false);
+        setError("Gagal memuat produk tambahan.");
+        return;
+      }
+
+      setProducts((previous) => {
+        const existing = new Set(previous.map((item) => item.id));
+        const appended = response.data.filter((item) => !existing.has(item.id));
+        return [...previous, ...appended];
+      });
+      setMeta(response.meta);
+
+      const resolvedCurrentPage = Math.max(1, Number(response.meta.current_page || nextPage));
+      const resolvedLastPage = Math.max(resolvedCurrentPage, Number(response.meta.last_page || resolvedCurrentPage));
+      setCurrentPage(resolvedCurrentPage);
+      setHasMore(resolvedCurrentPage < resolvedLastPage);
+    } catch (fetchError) {
+      if (requestVersion !== requestVersionRef.current) return;
+      console.error(fetchError);
+      setError("Gagal memuat produk tambahan. Silakan scroll lagi untuk mencoba ulang.");
+    } finally {
+      loadMoreInFlightRef.current = false;
+      if (requestVersion !== requestVersionRef.current) return;
+      setLoadingMore(false);
+    }
+  }, [currentPage, filters, hasMore, loading, loadingMore]);
 
   const updateFilters = useCallback(
     (newFilters: UpdateFiltersInput, options?: UpdateFilterOptions) => {
@@ -228,11 +298,14 @@ const useProductsState = (forcedCategory?: string): UseProductsResult => {
   return {
     products,
     loading,
+    loadingMore,
+    hasMore,
     error,
     meta,
     filters,
     updateFilters,
     clearFilters,
+    loadMore,
     refetch: fetchProducts,
   };
 };

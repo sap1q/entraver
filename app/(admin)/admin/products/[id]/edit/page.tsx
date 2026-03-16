@@ -8,8 +8,8 @@ import ProductForm from "@/components/features/products/ProductForm";
 import { useProduct, type ProductDetail } from "@/hooks/useProductAdmin";
 import { useProductForm } from "@/hooks/useProductForm";
 import { useProductSubmit } from "@/hooks/useProductSubmit";
-import { calculateFinalBeli, DEFAULT_MATRIX_ROW } from "@/lib/utils";
-import type { MatrixPricing, ProductFormState, VariantDefinition } from "@/types/product";
+import { calculateFinalBeli, DEFAULT_MATRIX_ROW, DEFAULT_SHIPPING_RATES } from "@/lib/utils";
+import type { MatrixPricing, ProductFormState, ShippingRates, VariantDefinition } from "@/types/product";
 import {
   PRODUCT_MEDIA_MAX_PHOTOS,
   buildMediaSubmission,
@@ -27,6 +27,43 @@ const toNumber = (value: unknown): number => {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+};
+
+const toNumberOrNull = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const normalized = value.replace(/[^\d.-]/g, "");
+    if (!normalized) return null;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const normalizeShippingRate = (value: unknown, fallback: number): number => {
+  const parsed = toNumberOrNull(value);
+  if (parsed === null) return Math.max(0, fallback);
+  return Math.max(0, parsed);
+};
+
+const resolveInventoryShippingRates = (inventory: Record<string, unknown>): ShippingRates => {
+  const source = inventory.shipping_rates && typeof inventory.shipping_rates === "object"
+    ? (inventory.shipping_rates as Record<string, unknown>)
+    : {};
+
+  const fallbackLaut = normalizeShippingRate(inventory.shipping_sea_rate, DEFAULT_SHIPPING_RATES.Laut);
+  const fallbackUdara = normalizeShippingRate(inventory.shipping_air_rate, DEFAULT_SHIPPING_RATES.Udara);
+  const fallbackDarat = normalizeShippingRate(
+    inventory.shipping_land_rate ?? inventory.shipping_new,
+    DEFAULT_SHIPPING_RATES.Darat
+  );
+
+  return {
+    Laut: normalizeShippingRate(source.Laut, fallbackLaut),
+    Udara: normalizeShippingRate(source.Udara, fallbackUdara),
+    Darat: normalizeShippingRate(source.Darat, fallbackDarat),
+  };
 };
 
 const toText = (value: unknown): string => (typeof value === "string" ? value : "");
@@ -190,6 +227,7 @@ const mapPricingRow = (row: RawMatrixRow, fallbackWeight = 0): MatrixPricing => 
   shipping: (toText(firstDefined(row, ["shipping"])) as MatrixPricing["shipping"]) || DEFAULT_MATRIX_ROW.shipping,
   shippingCost: Math.max(0, toNumber(firstDefined(row, ["shipping_cost", "shippingCost"]))),
   arrivalCost: Math.max(0, toNumber(firstDefined(row, ["arrival_cost", "arrivalCost"]))),
+  marginPercent: Math.max(0, toNumber(firstDefined(row, ["margin_percent", "marginPercent"]))),
   offlinePrice: Math.max(0, toNumber(firstDefined(row, ["offline_price", "offlinePrice"]))),
   entraversePrice: Math.max(0, toNumber(firstDefined(row, ["entraverse_price", "entraversePrice"]))),
   tokopediaPrice: Math.max(0, toNumber(firstDefined(row, ["tokopedia_price", "tokopediaPrice"]))),
@@ -249,6 +287,7 @@ const buildPrefilledState = (product: ProductDetail): ProductFormState => {
     rawInventory && typeof rawInventory.dimensions_cm === "object" && rawInventory.dimensions_cm !== null
       ? (rawInventory.dimensions_cm as Record<string, unknown>)
       : {};
+  const shippingRates = resolveInventoryShippingRates(rawInventory);
 
   const rawPhotos = Array.isArray(product.photos) ? product.photos : [];
   const photoUrls = rawPhotos
@@ -292,6 +331,7 @@ const buildPrefilledState = (product: ProductDetail): ProductFormState => {
       width: Math.max(0, toNumber(dimensions.width)),
       height: Math.max(0, toNumber(dimensions.height)),
       volume: Math.max(0, toNumber(rawInventory.volume_m3)),
+      shippingRates,
     },
     tradeIn: Boolean(product.trade_in),
     photos,
@@ -347,6 +387,7 @@ export default function EditProductPage() {
         shipping: row.shipping,
         shipping_cost: row.shippingCost,
         arrival_cost: row.arrivalCost,
+        margin_percent: row.marginPercent,
         purchase_price_idr: calculateFinalBeli(row),
         offline_price: row.offlinePrice,
         entraverse_price: row.entraversePrice,
@@ -397,6 +438,14 @@ export default function EditProductPage() {
           height: form.inventoryPlan.height,
         },
         volume_m3: form.inventoryPlan.volume,
+        shipping_rates: {
+          Laut: Math.max(0, Number(form.inventoryPlan.shippingRates.Laut) || 0),
+          Udara: Math.max(0, Number(form.inventoryPlan.shippingRates.Udara) || 0),
+          Darat: Math.max(0, Number(form.inventoryPlan.shippingRates.Darat) || 0),
+        },
+        shipping_sea_rate: Math.max(0, Number(form.inventoryPlan.shippingRates.Laut) || 0),
+        shipping_air_rate: Math.max(0, Number(form.inventoryPlan.shippingRates.Udara) || 0),
+        shipping_land_rate: Math.max(0, Number(form.inventoryPlan.shippingRates.Darat) || 0),
       },
       variants: variants.map((variant) => ({ name: variant.name, options: variant.options })),
       variant_pricing: variantPricingPayload,

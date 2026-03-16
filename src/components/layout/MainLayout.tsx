@@ -11,7 +11,7 @@ interface MainLayoutProps {
 
 export function MainLayout({ children }: MainLayoutProps) {
   const pathname = usePathname();
-  const noLayoutRoutes = ["/auth/login", "/auth/register", "/admin"];
+  const noLayoutRoutes = ["/login", "/register", "/auth/login", "/auth/register", "/admin"];
   const shouldHideLayout = noLayoutRoutes.some((route) =>
     pathname.startsWith(route)
   );

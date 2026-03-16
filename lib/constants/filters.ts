@@ -13,4 +13,4 @@ export const SORT_OPTIONS: Array<{
   { label: "Rating Tertinggi", value: "rating" },
 ];
 
-export const RATING_OPTIONS = [5, 4, 3] as const;
+export const RATING_OPTIONS = [5, 4, 3, 2, 1] as const;

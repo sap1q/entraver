@@ -2,6 +2,7 @@ import type {
   MarginCalculation,
   MatrixPricing,
   ProductFormState,
+  ShippingRates,
   VariantCombination,
   VariantDefinition,
 } from "@/types/product";
@@ -27,6 +28,12 @@ export const INPUT_BASE_CLASS =
 
 const MAX_PHOTOS = 5;
 
+export const DEFAULT_SHIPPING_RATES: ShippingRates = {
+  Laut: 7_500_000,
+  Udara: 155_000,
+  Darat: 0,
+};
+
 export const DEFAULT_MATRIX_ROW: MatrixPricing = {
   stock: 0,
   purchasePrice: 0,
@@ -36,6 +43,7 @@ export const DEFAULT_MATRIX_ROW: MatrixPricing = {
   shipping: "Laut",
   shippingCost: 0,
   arrivalCost: 0,
+  marginPercent: 0,
   offlinePrice: 0,
   entraversePrice: 0,
   tokopediaPrice: 0,
@@ -76,7 +84,14 @@ export const createInitialProductForm = (): ProductFormState => ({
     barcode: "",
   },
   description: "",
-  inventoryPlan: { weight: 0, length: 0, width: 0, height: 0, volume: 0 },
+  inventoryPlan: {
+    weight: 0,
+    length: 0,
+    width: 0,
+    height: 0,
+    volume: 0,
+    shippingRates: { ...DEFAULT_SHIPPING_RATES },
+  },
   tradeIn: false,
   photos: Array.from({ length: MAX_PHOTOS }, () => ({ file: null, preview: "" })),
   variants: [
@@ -89,6 +104,9 @@ export const createInitialProductForm = (): ProductFormState => ({
   ],
   matrix: {},
 });
+
+const EXCHANGE_BUFFER_CURRENCIES = new Set<MatrixPricing["currency"]>(["SGD", "USD"]);
+const DEFAULT_EXCHANGE_BUFFER_IDR = 50;
 
 export const generateCombinations = (variants: VariantDefinition[]): VariantCombination[] => {
   const validVariants = variants
@@ -124,8 +142,26 @@ export const generateCombinations = (variants: VariantDefinition[]): VariantComb
   return result;
 };
 
-export const calculateFinalBeli = (row: MatrixPricing): number =>
-  row.purchasePrice * row.exchangeValue + row.arrivalCost + row.shippingCost;
+export const getAdjustedExchangeRate = (
+  currency: MatrixPricing["currency"],
+  exchangeValue: number,
+  surcharge = DEFAULT_EXCHANGE_BUFFER_IDR
+): number => {
+  const normalizedExchange = Math.max(0, Number(exchangeValue) || 0);
+  if (!EXCHANGE_BUFFER_CURRENCIES.has(currency)) {
+    return normalizedExchange;
+  }
+
+  return normalizedExchange + Math.max(0, Number(surcharge) || 0);
+};
+
+export const calculateFinalBeli = (row: MatrixPricing): number => {
+  const exchangeRate = Math.max(0, Number(row.exchangeValue) || 0);
+  const purchasePrice = Math.max(0, Number(row.purchasePrice) || 0);
+  const arrivalCost = Math.max(0, Number(row.arrivalCost) || 0);
+
+  return Math.round((purchasePrice * exchangeRate) + arrivalCost);
+};
 
 export const calculateMargin = (sellingPrice: number, baseCost: number): MarginCalculation => {
   const profit = sellingPrice - baseCost;

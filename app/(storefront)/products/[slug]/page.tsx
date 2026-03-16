@@ -54,6 +54,7 @@ const toFallbackDetail = (product: Product): ProductDetail => {
     },
     warranty: product.warranty,
     variants: product.variants,
+    variant_pricing: product.variant_pricing,
   };
 };
 

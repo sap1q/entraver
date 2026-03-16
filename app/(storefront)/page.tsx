@@ -1,12 +1,10 @@
 import type { StorefrontBrand, StorefrontProduct } from "@/lib/api/types";
-import { storefrontApi, storefrontStaticData } from "@/lib/api/storefront";
+import { storefrontApi } from "@/lib/api/storefront";
 import HeroSlider from "./components/HeroSlider";
 import CategoriesSection from "./components/CategoriesSection";
 import BrandsSection from "./components/BrandsSection";
 import FeaturedProducts from "./components/FeaturedProducts";
 import BestSellingProducts from "./components/BestSellingProducts";
-import TestimonialsSection from "./components/TestimonialsSection";
-import WhyChooseUsSection from "./components/WhyChooseUsSection";
 
 export const revalidate = 60;
 
@@ -35,17 +33,17 @@ const deriveBrandFallback = (products: StorefrontProduct[], limit = 10): Storefr
 export default async function StorefrontPage() {
   const [categoriesResult, featuredResult, bestSellingResult, newestResult, brandsResult] = await Promise.all([
     storefrontApi.getCategories(12),
-    storefrontApi.getFeaturedProducts(6),
-    storefrontApi.getBestSellingProducts(6),
+    storefrontApi.getFeaturedProducts(10),
+    storefrontApi.getBestSellingProducts(10),
     storefrontApi.getNewestProducts(24),
     storefrontApi.getBrands(10),
   ]);
 
   const featuredProducts =
-    featuredResult.data.length > 0 ? featuredResult.data : newestResult.data.slice(0, 6);
+    featuredResult.data.length > 0 ? featuredResult.data : newestResult.data.slice(0, 10);
 
   const bestSellingProducts =
-    bestSellingResult.data.length > 0 ? bestSellingResult.data : newestResult.data.slice(6, 12);
+    bestSellingResult.data.length > 0 ? bestSellingResult.data : newestResult.data.slice(10, 20);
 
   const brands =
     brandsResult.data.length > 0
@@ -67,8 +65,6 @@ export default async function StorefrontPage() {
       <BrandsSection brands={brands} error={brandsResult.error} />
       <FeaturedProducts products={featuredProducts} error={featuredResult.error} />
       <BestSellingProducts products={bestSellingProducts} error={bestSellingResult.error} />
-      <TestimonialsSection testimonials={storefrontStaticData.testimonials} />
-      <WhyChooseUsSection items={storefrontStaticData.whyChooseItems} />
     </div>
   );
 }

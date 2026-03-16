@@ -8,15 +8,18 @@ export const ProductDetailSkeleton = () => {
       <div className="grid gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
           <div className="rounded-3xl border border-slate-200 bg-white p-5">
-            <div className="grid gap-4 md:grid-cols-[90px_minmax(0,1fr)_360px]">
-              <div className="hidden gap-2 md:grid md:auto-rows-fr">
-                <Skeleton className="h-20 w-20 rounded-xl" />
-                <Skeleton className="h-20 w-20 rounded-xl" />
-                <Skeleton className="h-20 w-20 rounded-xl" />
-                <Skeleton className="h-20 w-20 rounded-xl" />
-              </div>
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_360px]">
+              <div>
+                <Skeleton className="aspect-square w-full rounded-2xl" />
 
-              <Skeleton className="aspect-square w-full rounded-2xl" />
+                <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-5">
+                  <Skeleton className="h-20 w-full rounded-xl" />
+                  <Skeleton className="h-20 w-full rounded-xl" />
+                  <Skeleton className="h-20 w-full rounded-xl" />
+                  <Skeleton className="h-20 w-full rounded-xl" />
+                  <Skeleton className="hidden h-20 w-full rounded-xl sm:block" />
+                </div>
+              </div>
 
               <div className="space-y-3">
                 <Skeleton className="h-5 w-24 rounded-full" />

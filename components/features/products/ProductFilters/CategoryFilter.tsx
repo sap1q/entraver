@@ -7,7 +7,7 @@ import { productsApi } from "@/lib/api/products";
 import type { Category } from "@/types/product.types";
 
 export const CategoryFilter = () => {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

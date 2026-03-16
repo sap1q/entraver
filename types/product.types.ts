@@ -68,6 +68,7 @@ export interface VariantPrice {
   exchange_rate: number;
   shipping: "Udara" | "Laut";
   arrival_cost: number;
+  margin_percent?: number;
   purchase_price_idr: number;
   offline_price: number;
   entraverse_price: number;
@@ -125,12 +126,27 @@ export interface Product {
   stock_status?: "in_stock" | "low_stock" | "out_of_stock";
   warranty?: string;
   variants?: ProductVariantGroup[];
+  variant_pricing?: ProductVariantPricingRow[];
   trade_in?: boolean;
 }
 
 export interface ProductVariantGroup {
   name: string;
   options: string[];
+}
+
+export interface ProductVariantPricingRow {
+  sku?: string;
+  sku_seller?: string;
+  variant_code?: string;
+  label?: string;
+  options?: Record<string, string>;
+  stock?: number;
+  item_weight?: number;
+  offline_price?: number;
+  entraverse_price?: number;
+  tokopedia_price?: number;
+  shopee_price?: number;
 }
 
 export interface ProductReviewDistribution {
@@ -151,6 +167,7 @@ export interface ProductDetail extends Product {
   gallery: string[];
   description: string;
   specifications: Record<string, string>;
+  variant_pricing?: ProductVariantPricingRow[];
   weight: number;
   dimensions?: {
     length: number;
