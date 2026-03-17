@@ -7,7 +7,8 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { userProfileApi } from "@/lib/api/user-profile";
 import { clearPersistedAuth } from "@/lib/axios";
 import { getCachedProfileAvatar, getNameInitials, resolveApiAssetUrl } from "@/lib/utils/media";
-import { getStoredAdmin, getToken, removeStoredAdmin, removeToken } from "@/lib/utils/storage";
+import { getStoredAdmin, getToken } from "@/lib/utils/storage";
+import { AUTH_STATE_EVENT_NAME } from "@/src/lib/auth/tokens";
 
 const panelMotion = {
   hidden: { opacity: 0, scale: 0, y: -8 },
@@ -76,10 +77,12 @@ const subscribeProfileShortcut = (callback: () => void) => {
 
   window.addEventListener("storage", notify);
   window.addEventListener("storefront-profile-updated", notify as EventListener);
+  window.addEventListener(AUTH_STATE_EVENT_NAME, notify as EventListener);
 
   return () => {
     window.removeEventListener("storage", notify);
     window.removeEventListener("storefront-profile-updated", notify as EventListener);
+    window.removeEventListener(AUTH_STATE_EVENT_NAME, notify as EventListener);
   };
 };
 
@@ -162,8 +165,6 @@ export function ProfileShortcut() {
   const showAvatarImage = Boolean(avatarUrl && !avatarBroken);
 
   const handleLogout = () => {
-    removeToken();
-    removeStoredAdmin();
     clearPersistedAuth();
     setOpen(false);
     router.push("/");

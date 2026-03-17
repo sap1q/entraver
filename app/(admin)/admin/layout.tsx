@@ -26,7 +26,7 @@ import {
   User,
 } from "lucide-react";
 import { authApi } from "@/lib/api/auth";
-import { removeStoredAdmin, removeToken } from "@/lib/utils/storage";
+import { clearPersistedAuth } from "@/lib/axios";
 
 type AdminLayoutProps = {
   children: React.ReactNode;
@@ -99,8 +99,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     } catch {
       // Continue logout flow on frontend.
     } finally {
-      removeToken();
-      removeStoredAdmin();
+      clearPersistedAuth();
       router.push("/auth/login");
       setIsLoggingOut(false);
     }
