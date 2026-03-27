@@ -17,7 +17,8 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { formatFeeSummary } from "@/lib/api/category";
+import type { FeeChannel, FeeComponent } from "@/types/category.types";
+import { parseWarrantyProgram } from "@/lib/warrantyProgram";
 import type {
   Category,
   CategoryListParams,
@@ -64,6 +65,99 @@ const toDate = (value?: string | null): string => {
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
 };
+
+const formatNumber = (value: number): string =>
+  value.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+const formatCurrency = (value: number): string => `Rp ${formatNumber(Math.max(0, value))}`;
+
+const parseComponentNumber = (value: number | string | undefined): number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return 0;
+  const normalized = value.replace(/[^\d.,-]/g, "").replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatFeeComponent = (component: FeeComponent): string => {
+  const label = component.label?.trim() || "Komponen";
+  const numericValue = parseComponentNumber(component.value);
+  const value =
+    component.valueType === "amount"
+      ? formatCurrency(numericValue)
+      : `${formatNumber(numericValue)}%`;
+
+  const max = Math.max(0, Number(component.max) || 0);
+  const min = Math.max(0, Number(component.min) || 0);
+  const limits = [
+    min > 0 ? `min ${formatCurrency(min)}` : null,
+    max > 0 ? `max ${formatCurrency(max)}` : null,
+  ].filter(Boolean);
+
+  return limits.length > 0 ? `${label}: ${value} | ${limits.join(" | ")}` : `${label}: ${value}`;
+};
+
+const formatFeeChannelSummary = (channel?: FeeChannel): string => {
+  const components = channel?.components ?? [];
+  if (components.length === 0) return "-";
+  return components.map(formatFeeComponent).join(", ");
+};
+
+const formatWarrantySummary = (category: Category): string => {
+  const warranty = parseWarrantyProgram(category.program_garansi);
+  const summaryParts = warranty.components.map((component) =>
+    `${component.label}: ${
+      component.valueType === "amount"
+        ? formatCurrency(component.value)
+        : `${formatNumber(component.value)}%`
+    }`
+  );
+
+  if (warranty.pricing.cost.value > 0) {
+    summaryParts.unshift(
+      `Biaya Program Garansi: ${
+        warranty.pricing.cost.valueType === "amount"
+          ? formatCurrency(warranty.pricing.cost.value)
+          : `${formatNumber(warranty.pricing.cost.value)}%`
+      }`
+    );
+  }
+
+  if (warranty.pricing.profit.value > 0) {
+    summaryParts.push(
+      `Keuntungan Program Garansi: ${
+        warranty.pricing.profit.valueType === "amount"
+          ? formatCurrency(warranty.pricing.profit.value)
+          : `${formatNumber(warranty.pricing.profit.value)}%`
+      }`
+    );
+  }
+
+  return summaryParts.length > 0 ? summaryParts.join(", ") : "-";
+};
+
+const buildMarketplaceSummaries = (category: Category) => [
+  {
+    label: "Tokopedia",
+    className: "text-emerald-700",
+    value: formatFeeChannelSummary(category.fees.marketplace),
+  },
+  {
+    label: "Shopee",
+    className: "text-orange-700",
+    value: formatFeeChannelSummary(category.fees.shopee),
+  },
+  {
+    label: "Entraverse",
+    className: "text-slate-900",
+    value: formatFeeChannelSummary(category.fees.entraverse),
+  },
+  {
+    label: "Garansi",
+    className: "text-violet-700",
+    value: formatWarrantySummary(category),
+  },
+];
 
 export default function CategoryTable({
   categories,
@@ -248,13 +342,26 @@ export default function CategoryTable({
                       </div>
                     </td>
                     <td className="border-b border-gray-100 px-3 py-4 align-top text-xs text-slate-600">
-                      <p title={formatFeeSummary(category.fees.marketplace)}>{formatFeeSummary(category.fees.marketplace)}</p>
-                      <p title={formatFeeSummary(category.fees.shopee)}>{formatFeeSummary(category.fees.shopee)}</p>
-                      <p title={formatFeeSummary(category.fees.entraverse)}>{formatFeeSummary(category.fees.entraverse)}</p>
+                      <div className="max-w-[540px] space-y-1">
+                        {buildMarketplaceSummaries(category).map((item) => (
+                          <div
+                            key={`${category.id}-${item.label}`}
+                            className="grid grid-cols-[84px_12px_minmax(0,1fr)] items-start gap-x-1 leading-6"
+                          >
+                            <span className={`text-left text-[11px] font-bold ${item.className}`}>
+                              {item.label}
+                            </span>
+                            <span className={`text-center text-[11px] font-bold ${item.className}`}>:</span>
+                            <p className="min-w-0 text-justify text-slate-700 [text-align-last:left]" title={item.value}>
+                              {item.value}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
                     </td>
                     <td className="border-b border-gray-100 px-3 py-4 align-top">
                       <span className="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-700">
-                        {category.min_margin.toFixed(0)}%
+                        {formatNumber(category.min_margin)}%
                       </span>
                     </td>
                     <td className="border-b border-gray-100 px-3 py-4 align-top text-xs text-slate-600">
@@ -262,7 +369,7 @@ export default function CategoryTable({
                       <p>{toDate(category.updated_at ?? category.created_at)}</p>
                     </td>
                     <td className="border-b border-gray-100 px-3 py-4 align-top">
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         <Link
                           href={`${editBasePath}/${category.id}`}
                           className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
@@ -282,7 +389,7 @@ export default function CategoryTable({
                           <button
                             type="button"
                             onClick={() => onRestore(category.id)}
-                            className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700"
+                            className="inline-flex h-8 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700"
                           >
                             Restore
                           </button>
@@ -324,7 +431,7 @@ export default function CategoryTable({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-slate-800">{category.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">Margin: {category.min_margin.toFixed(0)}%</p>
+                    <p className="mt-1 text-xs text-slate-500">Margin: {formatNumber(category.min_margin)}%</p>
                   </div>
                   <input
                     type="checkbox"
@@ -332,8 +439,19 @@ export default function CategoryTable({
                     onChange={() => onToggleSelect(category.id)}
                   />
                 </div>
-                <p className="mt-2 text-xs text-slate-600">{formatFeeSummary(category.fees.marketplace)}</p>
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 space-y-1 text-xs text-slate-600">
+                  {buildMarketplaceSummaries(category).map((item) => (
+                    <div
+                      key={`mobile-summary-${category.id}-${item.label}`}
+                      className="grid grid-cols-[74px_12px_minmax(0,1fr)] items-start gap-x-1 leading-5"
+                    >
+                      <span className={`text-left text-[11px] font-bold ${item.className}`}>{item.label}</span>
+                      <span className={`text-center text-[11px] font-bold ${item.className}`}>:</span>
+                      <p className="text-justify [text-align-last:left]">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex items-center gap-2 whitespace-nowrap">
                   <Link href={`${editBasePath}/${category.id}`} className="rounded-lg border border-slate-200 px-2 py-1 text-xs">Edit</Link>
                   <button type="button" onClick={() => onDuplicate(category)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs">Copy</button>
                   <button type="button" onClick={() => setConfirm({ type: "delete", id: category.id, title: `Hapus ${category.name}?`, description: "Kategori akan di-soft delete." })} className="rounded-lg border border-rose-200 px-2 py-1 text-xs text-rose-600">Hapus</button>

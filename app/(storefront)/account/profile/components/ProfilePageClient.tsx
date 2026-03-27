@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { isAxiosError } from "axios";
@@ -65,6 +65,8 @@ const isAbortError = (error: unknown): boolean => {
   return error.code === "ERR_CANCELED";
 };
 
+type AvatarChangeMode = "keep" | "upload" | "remove";
+
 export function ProfilePageClient() {
   const { isAuthenticated, isChecking } = useRequireStorefrontAuth("/account/profile");
   const { selectedAddress, fetchAddresses } = useAddress();
@@ -73,6 +75,7 @@ export function ProfilePageClient() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarChangeMode, setAvatarChangeMode] = useState<AvatarChangeMode>("keep");
   const [cropSource, setCropSource] = useState<{ src: string; fileName: string; fileType: string } | null>(null);
   const [isCroppingImage, setIsCroppingImage] = useState(false);
   const previewUrlRef = useRef<string | null>(null);
@@ -94,18 +97,45 @@ export function ProfilePageClient() {
 
   const watchedName = watch("name");
   const avatarInitials = useMemo(() => getInitials(watchedName || profile?.name), [profile?.name, watchedName]);
+  const canRemoveAvatar = Boolean(avatarPreview || profile?.avatar || profile?.avatar_path);
+
+  const syncAvatarPreview = useCallback((nextAvatarPreview: string | null) => {
+    setAvatarPreview(nextAvatarPreview);
+
+    if (nextAvatarPreview) {
+      setCachedProfileAvatar(nextAvatarPreview);
+      return;
+    }
+
+    clearCachedProfileAvatar();
+  }, []);
+
+  const releasePreviewObjectUrl = useCallback(() => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+  }, []);
+
+  const dispatchProfileUpdated = useCallback((detail: { name?: string | null; email?: string | null; avatar?: string | null }) => {
+    if (typeof window === "undefined") return;
+
+    window.dispatchEvent(
+      new CustomEvent("storefront-profile-updated", {
+        detail,
+      })
+    );
+  }, []);
 
   useEffect(() => {
     return () => {
-      if (previewUrlRef.current) {
-        URL.revokeObjectURL(previewUrlRef.current);
-      }
+      releasePreviewObjectUrl();
 
       if (cropSourceUrlRef.current) {
         URL.revokeObjectURL(cropSourceUrlRef.current);
       }
     };
-  }, []);
+  }, [releasePreviewObjectUrl]);
 
   useEffect(() => {
     if (isChecking || !isAuthenticated) return;
@@ -121,10 +151,8 @@ export function ProfilePageClient() {
         const resolvedAvatar = resolveApiAssetUrl(nextProfile.avatar);
         const persistedAvatarPreview = resolvedAvatar || getCachedProfileAvatar();
         setProfile(nextProfile);
-        setAvatarPreview(persistedAvatarPreview);
-        if (resolvedAvatar) {
-          clearCachedProfileAvatar();
-        }
+        syncAvatarPreview(persistedAvatarPreview);
+        setAvatarChangeMode("keep");
         reset(buildDefaultValues(nextProfile));
       } catch (error) {
         if (isAbortError(error)) return;
@@ -139,7 +167,7 @@ export function ProfilePageClient() {
     return () => {
       controller.abort();
     };
-  }, [isAuthenticated, isChecking, reset]);
+  }, [isAuthenticated, isChecking, reset, syncAvatarPreview]);
 
   useEffect(() => {
     if (!isAuthenticated || isChecking) return;
@@ -153,8 +181,6 @@ export function ProfilePageClient() {
     setStatusMessage(null);
 
     if (!file) {
-      setValue("avatar", null, { shouldDirty: true, shouldValidate: false });
-      setAvatarPreview(resolveApiAssetUrl(profile?.avatar) || getCachedProfileAvatar() || null);
       return;
     }
 
@@ -212,6 +238,7 @@ export function ProfilePageClient() {
       previewUrlRef.current = nextPreviewUrl;
 
       setValue("avatar", croppedFile, { shouldDirty: true, shouldValidate: false });
+      setAvatarChangeMode("upload");
       setAvatarPreview(nextPreviewUrl);
       handleCropCancel();
     } catch (error) {
@@ -223,9 +250,24 @@ export function ProfilePageClient() {
     }
   };
 
+  const handleAvatarRemove = () => {
+    const hasPersistedAvatar = Boolean(resolveApiAssetUrl(profile?.avatar) || profile?.avatar_path || getCachedProfileAvatar());
+
+    clearErrors("avatar");
+    setStatusMessage(null);
+    releasePreviewObjectUrl();
+    handleCropCancel();
+    setValue("avatar", null, { shouldDirty: true, shouldValidate: false });
+    setAvatarPreview(null);
+    setAvatarChangeMode(hasPersistedAvatar ? "remove" : "keep");
+  };
+
   const onSubmit = handleSubmit(async (values) => {
     setStatusMessage(null);
-    const localAvatarPreview = values.avatar instanceof File ? await fileToDataUrl(values.avatar) : null;
+    const nextAvatarFile = values.avatar instanceof File ? values.avatar : null;
+    const hasNewAvatar = Boolean(nextAvatarFile);
+    const shouldRemoveAvatar = avatarChangeMode === "remove" && !hasNewAvatar;
+    const localAvatarPreview = nextAvatarFile ? await fileToDataUrl(nextAvatarFile) : null;
 
     const formData = new FormData();
     formData.append("name", values.name.trim());
@@ -233,21 +275,24 @@ export function ProfilePageClient() {
     formData.append("gender", values.gender);
     formData.append("date_of_birth", values.date_of_birth);
 
-    if (values.avatar instanceof File) {
-      formData.append("avatar", values.avatar);
+    if (nextAvatarFile) {
+      formData.append("avatar", nextAvatarFile);
+    }
+
+    if (shouldRemoveAvatar) {
+      formData.append("remove_avatar", "1");
     }
 
     try {
       const updatedProfile = await userProfileApi.updateProfile(formData);
       const resolvedApiAvatar = resolveApiAssetUrl(updatedProfile.avatar);
-      const resolvedAvatarPreview = resolvedApiAvatar || localAvatarPreview || avatarPreview || null;
+      const resolvedAvatarPreview = shouldRemoveAvatar
+        ? null
+        : resolvedApiAvatar || localAvatarPreview || avatarPreview || getCachedProfileAvatar() || null;
+
       setProfile(updatedProfile);
-      setAvatarPreview(resolvedAvatarPreview);
-      if (resolvedApiAvatar) {
-        clearCachedProfileAvatar();
-      } else {
-        setCachedProfileAvatar(resolvedAvatarPreview);
-      }
+      syncAvatarPreview(resolvedAvatarPreview);
+      setAvatarChangeMode("keep");
       reset(buildDefaultValues(updatedProfile));
       setStatusMessage({ type: "success", text: "Profil berhasil diperbarui." });
 
@@ -259,21 +304,12 @@ export function ProfilePageClient() {
         });
       }
 
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("storefront-profile-updated", {
-            detail: {
-              name: updatedProfile.name,
-              avatar: resolvedAvatarPreview,
-            },
-          })
-        );
-      }
-
-      if (previewUrlRef.current) {
-        URL.revokeObjectURL(previewUrlRef.current);
-        previewUrlRef.current = null;
-      }
+      dispatchProfileUpdated({
+        name: updatedProfile.name,
+        email: updatedProfile.email,
+        avatar: resolvedAvatarPreview,
+      });
+      releasePreviewObjectUrl();
     } catch (error) {
       if (isAxiosError(error) && error.response?.status === 422) {
         const responseErrors = error.response.data?.errors;
@@ -344,10 +380,12 @@ export function ProfilePageClient() {
           isLoadingProfile={isLoadingProfile}
           avatarPreview={avatarPreview}
           avatarInitials={avatarInitials}
+          canRemoveAvatar={canRemoveAvatar}
           fetchError={fetchError}
           statusMessage={statusMessage}
           primaryAddress={primaryAddress}
           onAvatarChange={handleAvatarChange}
+          onAvatarRemove={handleAvatarRemove}
           onSubmit={onSubmit}
         />
       )}

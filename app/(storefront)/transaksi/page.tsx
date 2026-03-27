@@ -1,8 +1,22 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, FileText, LifeBuoy, Loader2, MoreVertical, PackageSearch, RefreshCcw, ReceiptText, X } from "lucide-react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  Ban,
+  FileText,
+  LifeBuoy,
+  Loader2,
+  MoreVertical,
+  PackageSearch,
+  ReceiptText,
+  RefreshCcw,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { AccountShell } from "@/app/(storefront)/account/components/AccountShell";
 import { Button } from "@/components/ui/Button";
 import { useRequireStorefrontAuth } from "@/hooks/useRequireStorefrontAuth";
@@ -10,15 +24,35 @@ import type {
   CustomerOrder,
   CustomerOrderFilterKey,
   CustomerOrderFilterOption,
+  CustomerOrderPaymentDetails,
   CustomerOrderProgressStage,
 } from "@/lib/api/customer-orders";
-import { customerOrdersApi } from "@/lib/api/customer-orders";
-import { formatCurrencyIDR, formatDateID } from "@/lib/utils/formatter";
+import {
+  canCustomerOrderBeCancelled,
+  canCustomerOrderRequestReturn,
+  canCustomerOrderTrackShipment,
+  customerOrdersApi,
+} from "@/lib/api/customer-orders";
+import {
+  clearPendingPaymentSnapshot,
+  getPendingPaymentSnapshot,
+  normalizeMidtransPendingSnapshot,
+  savePendingPaymentSnapshot,
+} from "@/lib/payments/midtrans-pending";
+import {
+  buildPendingPaymentSessionFromOrder,
+  clearPendingPaymentSession,
+  loadMidtransSnapScript,
+  redirectToMidtransPayment,
+  savePendingPaymentSession,
+  type PendingPaymentSession,
+} from "@/lib/payments/midtrans-session";
+import { formatCurrencyIDR, formatDateID, formatDateTimeID } from "@/lib/utils/formatter";
 import { resolveApiAssetUrl } from "@/lib/utils/media";
 
 const DEFAULT_PROGRESS_STAGES: CustomerOrderProgressStage[] = [
   { step: 1, code: "waiting_payment", label: "Menunggu Pembayaran" },
-  { step: 2, code: "waiting_confirmation", label: "Menunggu Konfirmasi" },
+  { step: 2, code: "waiting_confirmation", label: "Dikonfirmasi" },
   { step: 3, code: "order_shipped", label: "Pesanan Dikirim" },
   { step: 4, code: "order_delivered", label: "Pesanan Terkirim" },
   { step: 5, code: "completed", label: "Selesai" },
@@ -54,6 +88,36 @@ const toFriendlyError = (error: unknown): string => {
   if (error instanceof Error) return error.message;
   return "Terjadi gangguan saat menghubungkan ke API Laravel.";
 };
+
+const resolveOrderPaymentDetails = (order: CustomerOrder): CustomerOrderPaymentDetails | null => {
+  const snapshot = getPendingPaymentSnapshot(order.orderNumber);
+
+  if (order.paymentDetails?.accountNumber || !snapshot) {
+    return order.paymentDetails;
+  }
+
+  return {
+    statusLabel: snapshot.statusLabel,
+    isPending: true,
+    paymentType: snapshot.paymentType,
+    methodCode: snapshot.methodCode,
+    methodLabel: snapshot.methodLabel,
+    channelCode: snapshot.channelCode,
+    channelLabel: snapshot.channelLabel,
+    accountLabel: snapshot.accountLabel,
+    accountNumber: snapshot.accountNumber,
+    secondaryLabel: snapshot.secondaryLabel,
+    secondaryValue: snapshot.secondaryValue,
+    expiryTime: snapshot.expiryTime,
+    totalAmount: snapshot.totalAmount,
+    pdfUrl: null,
+    statusMessage: null,
+    canResumePayment: true,
+    instructions: snapshot.instructions,
+  };
+};
+
+const resolveInvoiceNumber = (order: CustomerOrder): string => order.invoiceNumber ?? order.orderNumber;
 
 function OrderProgress({
   currentStep,
@@ -139,7 +203,7 @@ function OrderDetailModal({
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900">Detail Transaksi</h2>
-            <p className="mt-1 text-sm text-slate-500">Invoice: {order.orderNumber}</p>
+            <p className="mt-1 text-sm text-slate-500">Invoice: {resolveInvoiceNumber(order)}</p>
           </div>
 
           <button
@@ -195,7 +259,9 @@ function OrderDetailModal({
 }
 
 export default function TransactionsPage() {
+  const router = useRouter();
   const { isAuthenticated, isChecking } = useRequireStorefrontAuth("/transaksi");
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
   const [activeFilter, setActiveFilter] = useState<CustomerOrderFilterKey>("all");
   const [availableFilters, setAvailableFilters] = useState<CustomerOrderFilterOption[]>(DEFAULT_FILTERS);
@@ -206,6 +272,12 @@ export default function TransactionsPage() {
   const [openMenuOrderId, setOpenMenuOrderId] = useState<string | null>(null);
   const [detailOrder, setDetailOrder] = useState<CustomerOrder | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
+  const [resumeOrderId, setResumeOrderId] = useState<string | null>(null);
+  const [confirmReceiveOrderId, setConfirmReceiveOrderId] = useState<string | null>(null);
+  const highlightedOrderKey = searchParams.get("highlight");
+  const highlightedInvoice = searchParams.get("invoice");
+  const highlightedPaymentStatus = searchParams.get("payment_status");
+  const highlightedPaymentEvent = searchParams.get("payment_event");
 
   useEffect(() => {
     if (!openMenuOrderId) return;
@@ -296,6 +368,180 @@ export default function TransactionsPage() {
     });
   }, [availableFilters]);
 
+  useEffect(() => {
+    if (!highlightedOrderKey && !highlightedInvoice) return;
+
+    const matched = orders.find(
+      (order) =>
+        order.id === highlightedOrderKey ||
+        order.orderNumber === highlightedInvoice ||
+        order.orderNumber === highlightedOrderKey ||
+        order.invoiceNumber === highlightedInvoice ||
+        order.invoiceNumber === highlightedOrderKey
+    );
+
+    if (!matched) return;
+
+    if (highlightedPaymentEvent === "closed") {
+      setInfo("Anda belum menyelesaikan pembayaran. Pesanan tetap tersimpan di riwayat dan bisa dibayar lagi kapan saja.");
+      return;
+    }
+
+    if (highlightedPaymentStatus === "finish" || highlightedPaymentEvent === "success") {
+      setInfo(`Pembayaran untuk pesanan ${matched.orderNumber} berhasil dikirim. Status pesanan sedang disinkronkan.`);
+      return;
+    }
+
+    if (highlightedPaymentStatus === "pending" || resolveOrderPaymentDetails(matched)?.isPending) {
+      setInfo(`Pesanan ${matched.orderNumber} berada pada status menunggu pembayaran.`);
+    }
+  }, [highlightedInvoice, highlightedOrderKey, highlightedPaymentEvent, highlightedPaymentStatus, orders]);
+
+  const syncOrderState = useCallback((nextOrder: CustomerOrder) => {
+    setOrders((current) => current.map((order) => (order.id === nextOrder.id ? nextOrder : order)));
+    setDetailOrder((current) => (current?.id === nextOrder.id ? nextOrder : current));
+  }, []);
+
+  const persistPendingPayment = useCallback((payment: PendingPaymentSession): PendingPaymentSession => {
+    const nextPayment = {
+      ...payment,
+      savedAt: new Date().toISOString(),
+    };
+
+    savePendingPaymentSession(nextPayment);
+    return nextPayment;
+  }, []);
+
+  const openMidtransSnap = useCallback(
+    async (payment: PendingPaymentSession, order: CustomerOrder) => {
+      const activePayment = persistPendingPayment(payment);
+
+      if (!activePayment.snapToken && activePayment.snapRedirectUrl) {
+        setInfo(`Mengalihkan pembayaran order ${activePayment.orderNumber} ke Midtrans...`);
+        redirectToMidtransPayment(activePayment.snapRedirectUrl);
+        return;
+      }
+
+      if (!activePayment.snapToken) {
+        throw new Error("Token pembayaran Midtrans tidak tersedia untuk pesanan ini.");
+      }
+
+      if (!activePayment.midtransClientKey) {
+        if (activePayment.snapRedirectUrl) {
+          setInfo("Mengalihkan ke halaman pembayaran Midtrans...");
+          redirectToMidtransPayment(activePayment.snapRedirectUrl);
+          return;
+        }
+
+        throw new Error("MIDTRANS_CLIENT_KEY belum dikonfigurasi di backend.");
+      }
+
+      try {
+        await loadMidtransSnapScript(activePayment.midtransSnapJsUrl, activePayment.midtransClientKey);
+      } catch (error) {
+        if (activePayment.snapRedirectUrl) {
+          setInfo("Popup Midtrans tidak tersedia, mengalihkan ke halaman pembayaran...");
+          redirectToMidtransPayment(activePayment.snapRedirectUrl);
+          return;
+        }
+
+        throw error;
+      }
+
+      if (!window.snap) {
+        if (activePayment.snapRedirectUrl) {
+          setInfo("Midtrans Snap belum siap, mengalihkan ke halaman pembayaran...");
+          redirectToMidtransPayment(activePayment.snapRedirectUrl);
+          return;
+        }
+
+        throw new Error("Midtrans Snap belum siap.");
+      }
+
+      window.snap.pay(activePayment.snapToken, {
+        onSuccess: () => {
+          clearPendingPaymentSession();
+          clearPendingPaymentSnapshot(activePayment.orderNumber);
+          setError(null);
+          setInfo(`Pembayaran berhasil untuk order ${activePayment.orderNumber}. Status pesanan sedang disinkronkan.`);
+          setReloadTick((previous) => previous + 1);
+        },
+        onPending: (result) => {
+          persistPendingPayment(activePayment);
+          const snapshot = normalizeMidtransPendingSnapshot(result, {
+            orderNumber: activePayment.orderNumber,
+            totalAmount: activePayment.totalAmount,
+          });
+
+          if (snapshot) {
+            savePendingPaymentSnapshot(snapshot);
+          }
+
+          setError(null);
+          setInfo(`Metode pembayaran untuk order ${activePayment.orderNumber} berhasil dibuat. Lanjutkan pembayaran dari detail pesanan.`);
+          setReloadTick((previous) => previous + 1);
+          router.push(`/transaksi/${order.id}?invoice=${activePayment.orderNumber}&payment_status=pending&payment_event=pending`);
+        },
+        onError: () => {
+          persistPendingPayment(activePayment);
+          setInfo(null);
+          setError(`Pembayaran untuk order ${activePayment.orderNumber} belum berhasil. Pesanan tetap tersimpan dan bisa dicoba lagi.`);
+        },
+        onClose: () => {
+          persistPendingPayment(activePayment);
+          setError(null);
+          setInfo("Anda belum menyelesaikan pembayaran. Pesanan tetap tersimpan di riwayat dan bisa dibayar lagi kapan saja.");
+        },
+      });
+    },
+    [persistPendingPayment, router]
+  );
+
+  const handleResumePayment = useCallback(
+    async (order: CustomerOrder) => {
+      if (!order.id.trim()) return;
+
+      setResumeOrderId(order.id);
+      setError(null);
+      setInfo(null);
+
+      try {
+        const paymentResult = await customerOrdersApi.getPayment(order.id);
+        const activePayment = persistPendingPayment(buildPendingPaymentSessionFromOrder(paymentResult));
+        await openMidtransSnap(activePayment, order);
+      } catch (resumeError) {
+        const message = toFriendlyError(resumeError);
+        setInfo(null);
+        setError(message);
+      } finally {
+        setResumeOrderId(null);
+      }
+    },
+    [openMidtransSnap, persistPendingPayment]
+  );
+
+  const handleConfirmReceived = useCallback(
+    async (order: CustomerOrder) => {
+      if (!order.id.trim()) return;
+
+      setConfirmReceiveOrderId(order.id);
+      setError(null);
+      setInfo(null);
+
+      try {
+        const nextOrder = await customerOrdersApi.confirmReceived(order.id);
+        syncOrderState(nextOrder);
+        setInfo(`Pesanan ${nextOrder.orderNumber} berhasil dikonfirmasi telah diterima.`);
+      } catch (confirmError) {
+        setInfo(null);
+        setError(toFriendlyError(confirmError));
+      } finally {
+        setConfirmReceiveOrderId(null);
+      }
+    },
+    [syncOrderState]
+  );
+
   const openHelpCenter = (order: CustomerOrder) => {
     if (typeof window === "undefined") return;
 
@@ -305,6 +551,32 @@ export default function TransactionsPage() {
     );
 
     window.location.href = `mailto:support@entraverse.id?subject=${subject}&body=${body}`;
+  };
+
+  const openOrderActionSupport = (
+    order: CustomerOrder,
+    action: "cancel" | "return"
+  ) => {
+    if (typeof window === "undefined") return;
+
+    const definitions = {
+      cancel: {
+        subject: `Pembatalan Pesanan ${order.orderNumber}`,
+        body: `Halo Tim Entraverse,\nSaya ingin mengajukan pembatalan untuk pesanan ${order.orderNumber}.\nMohon bantu proses pembatalannya.\nTerima kasih.`,
+        info: `Membuka email bantuan untuk pembatalan pesanan ${order.orderNumber}.`,
+      },
+      return: {
+        subject: `Pengajuan Retur Pesanan ${order.orderNumber}`,
+        body: `Halo Tim Entraverse,\nSaya ingin mengajukan retur/pengembalian untuk pesanan ${order.orderNumber}.\nMohon informasikan langkah selanjutnya.\nTerima kasih.`,
+        info: `Membuka email bantuan untuk pengajuan retur pesanan ${order.orderNumber}.`,
+      },
+    } as const;
+
+    const selected = definitions[action];
+    setError(null);
+    setInfo(selected.info);
+
+    window.location.href = `mailto:support@entraverse.id?subject=${encodeURIComponent(selected.subject)}&body=${encodeURIComponent(selected.body)}`;
   };
 
   const handleTrackPackage = (order: CustomerOrder) => {
@@ -421,9 +693,32 @@ export default function TransactionsPage() {
           {orders.map((order) => {
             const primaryItem = order.primaryItem ?? order.items[0] ?? null;
             const imageSource = resolveApiAssetUrl(primaryItem?.productImage) ?? "/product-placeholder.svg";
+            const paymentDetails = resolveOrderPaymentDetails(order);
+            const canResumePayment = Boolean(order.canResumePayment || paymentDetails?.canResumePayment);
+            const canCancelOrder = canCustomerOrderBeCancelled(order);
+            const canTrackShipment = canCustomerOrderTrackShipment(order);
+            const canRequestReturn = canCustomerOrderRequestReturn(order);
+            const canConfirmReceived = !paymentDetails?.isPending && order.canConfirmReceived;
+            const showInlineActions =
+              canResumePayment ||
+              canCancelOrder ||
+              canTrackShipment ||
+              canConfirmReceived ||
+              canRequestReturn;
+            const isHighlighted =
+              highlightedOrderKey === order.id ||
+              highlightedOrderKey === order.orderNumber ||
+              highlightedInvoice === order.orderNumber ||
+              highlightedInvoice === order.invoiceNumber ||
+              highlightedOrderKey === order.invoiceNumber;
 
             return (
-              <article key={order.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <article
+                key={order.id}
+                className={`rounded-2xl border bg-white p-5 shadow-sm ${
+                  isHighlighted ? "border-blue-300 shadow-[0_18px_44px_rgba(59,130,246,0.16)]" : "border-slate-200"
+                }`}
+              >
                 <header className="grid gap-4 border-b border-slate-200 pb-4 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Tanggal Transaksi</p>
@@ -482,7 +777,22 @@ export default function TransactionsPage() {
                           Detail Transaksi
                         </button>
 
-                        {order.canTrackPackage ? (
+                        {canCancelOrder ? (
+                          <button
+                            type="button"
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-rose-600 transition hover:bg-rose-50"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuOrderId(null);
+                              openOrderActionSupport(order, "cancel");
+                            }}
+                          >
+                            <Ban className="h-4 w-4" />
+                            Batalkan Pesanan
+                          </button>
+                        ) : null}
+
+                        {canTrackShipment ? (
                           <button
                             type="button"
                             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
@@ -493,7 +803,22 @@ export default function TransactionsPage() {
                             }}
                           >
                             <PackageSearch className="h-4 w-4 text-slate-500" />
-                            Lacak Paket
+                            Lacak Pesanan
+                          </button>
+                        ) : null}
+
+                        {canRequestReturn ? (
+                          <button
+                            type="button"
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-amber-700 transition hover:bg-amber-50"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuOrderId(null);
+                              openOrderActionSupport(order, "return");
+                            }}
+                          >
+                            <RotateCcw className="h-4 w-4 text-amber-600" />
+                            Ajukan Retur
                           </button>
                         ) : null}
 
@@ -530,12 +855,100 @@ export default function TransactionsPage() {
                       <p className="truncate text-base font-semibold text-slate-900">
                         {primaryItem?.productName ?? "Produk tidak tersedia"}
                       </p>
-                      <p className="mt-0.5 text-sm text-emerald-700">Pembayaran: {order.paymentMethodLabel}</p>
+                      <p className="mt-0.5 text-sm text-emerald-700">
+                        Pembayaran: {paymentDetails?.methodLabel ?? order.paymentMethodLabel}
+                      </p>
+                      {paymentDetails?.isPending && paymentDetails.expiryTime ? (
+                        <p className="mt-0.5 text-xs text-amber-700">
+                          Bayar sebelum {formatDateTimeID(paymentDetails.expiryTime)}
+                        </p>
+                      ) : null}
                       {order.trackingNumber && order.canTrackPackage ? (
                         <p className="mt-0.5 text-xs text-slate-500">Resi: {order.trackingNumber}</p>
                       ) : null}
                     </div>
                   </div>
+
+                  {showInlineActions ? (
+                    <div className="flex flex-wrap gap-3">
+                      {canResumePayment ? (
+                        <Button
+                          type="button"
+                          disabled={resumeOrderId === order.id}
+                          onClick={() => {
+                            void handleResumePayment(order);
+                          }}
+                          className="h-10 rounded-xl bg-blue-600 px-4 text-sm font-semibold hover:bg-blue-700"
+                        >
+                          {resumeOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                          Bayar Sekarang
+                        </Button>
+                      ) : null}
+
+                      {canCancelOrder ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            openOrderActionSupport(order, "cancel");
+                          }}
+                          className="h-10 rounded-xl border-rose-200 px-4 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                        >
+                          <Ban className="h-4 w-4" />
+                          Batalkan
+                        </Button>
+                      ) : null}
+
+                      {canTrackShipment ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            handleTrackPackage(order);
+                          }}
+                          className="h-10 rounded-xl border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          <PackageSearch className="h-4 w-4" />
+                          Lacak Pesanan
+                        </Button>
+                      ) : null}
+
+                      {canRequestReturn ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            openOrderActionSupport(order, "return");
+                          }}
+                          className="h-10 rounded-xl border-amber-200 px-4 text-sm font-semibold text-amber-700 hover:bg-amber-50"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          Ajukan Retur
+                        </Button>
+                      ) : null}
+
+                      {canConfirmReceived ? (
+                        <Button
+                          type="button"
+                          disabled={confirmReceiveOrderId === order.id}
+                          onClick={() => {
+                            void handleConfirmReceived(order);
+                          }}
+                          className="h-10 rounded-xl bg-emerald-600 px-4 text-sm font-semibold hover:bg-emerald-700"
+                        >
+                          {confirmReceiveOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                          Pesanan Diterima
+                        </Button>
+                      ) : null}
+
+                      <Link
+                        href={`/transaksi/${order.id}`}
+                        className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        Lihat Detail
+                      </Link>
+                    </div>
+                  ) : null}
                 </div>
 
                 <OrderProgress stages={progressStages} currentStep={order.statusStep} />

@@ -16,13 +16,21 @@ export default function LoginForm() {
   const [form, setForm] = useState({ email: "", password: "", remember: false });
   const [showPassword, setShowPassword] = useState(false);
 
+  const resolvePostLoginRedirect = () => {
+    const redirect = searchParams.get("redirect");
+    if (!redirect || !redirect.startsWith("/")) {
+      return "/";
+    }
+
+    return redirect;
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const success = await login(form);
     if (success) {
       toast({ title: "Berhasil", description: "Login berhasil.", variant: "success" });
-      const redirect = searchParams.get("redirect");
-      router.push(redirect || "/admin/dashboard");
+      router.push(resolvePostLoginRedirect());
       return;
     }
 

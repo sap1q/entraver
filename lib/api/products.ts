@@ -1,4 +1,5 @@
 import api, { isAxiosError } from "@/lib/axios";
+import { sumSharedInventoryStockFromVariantRows } from "@/lib/sharedInventory";
 import type {
   ApiSuccessResponse,
   Brand,
@@ -11,6 +12,7 @@ import type {
   ProductReviewDistribution,
   ProductReviewQuery,
   ProductReviewResponse,
+  ProductSearchSuggestionResponse,
   ProductReviewSummary,
   ProductVariantGroup,
   ProductVariantPricingRow,
@@ -304,7 +306,15 @@ const mapProduct = (raw: unknown): Product => {
       ? Math.round(((originalPrice - price) / originalPrice) * 100)
       : undefined);
 
-  const stock = toNumberValue(row.stock) ?? toNumberValue(toObject(row.inventory).total_stock) ?? 0;
+  const stockFromVariants =
+    Array.isArray(row.variant_pricing) && row.variant_pricing.length > 0
+      ? sumSharedInventoryStockFromVariantRows(row.variant_pricing as Array<Record<string, unknown>>)
+      : null;
+  const stock =
+    stockFromVariants ??
+    toNumberValue(row.stock) ??
+    toNumberValue(toObject(row.inventory).total_stock) ??
+    0;
 
   return {
     id: toStringValue(row.id) ?? toStringValue(row.uuid) ?? slug,
@@ -656,6 +666,33 @@ export const productsApi = {
 
       throw error;
     }
+  },
+
+  getSearchSuggestions: async (search: string, limit = 6): Promise<ProductSearchSuggestionResponse> => {
+    const response = await api.get("/v1/products/suggestions", {
+      params: {
+        search,
+        limit,
+      },
+      timeout: 120000,
+    });
+
+    const payload = toObject(response.data);
+    const rows = extractProductRows(payload);
+    const meta = toObject(payload.meta);
+    const keywords = Array.isArray(meta.keywords)
+      ? meta.keywords
+          .map((item) => toStringValue(item))
+          .filter((item): item is string => Boolean(item))
+      : [];
+
+    return {
+      success: payload.success !== false,
+      data: rows.map(mapProduct),
+      meta: {
+        keywords,
+      },
+    };
   },
 
   addToCart: async (productId: string, quantity: number, variant?: Record<string, string>) => {

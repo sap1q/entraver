@@ -16,10 +16,12 @@ interface ProfileFormProps {
   isLoadingProfile: boolean;
   avatarPreview: string | null;
   avatarInitials: string;
+  canRemoveAvatar: boolean;
   fetchError: string | null;
   statusMessage: { type: "success" | "error"; text: string } | null;
   primaryAddress: string;
   onAvatarChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onAvatarRemove: () => void;
   onSubmit: ReturnType<UseFormHandleSubmit<ProfileFormValues>>;
 }
 
@@ -30,10 +32,12 @@ export function ProfileForm({
   isLoadingProfile,
   avatarPreview,
   avatarInitials,
+  canRemoveAvatar,
   fetchError,
   statusMessage,
   primaryAddress,
   onAvatarChange,
+  onAvatarRemove,
   onSubmit,
 }: ProfileFormProps) {
   return (
@@ -59,7 +63,9 @@ export function ProfileForm({
         initials={avatarInitials}
         error={errors.avatar?.message}
         disabled={isSubmitting || isLoadingProfile}
+        canRemove={canRemoveAvatar}
         onChange={onAvatarChange}
+        onRemove={onAvatarRemove}
       />
 
       <div>

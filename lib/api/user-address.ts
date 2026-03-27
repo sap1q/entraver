@@ -7,6 +7,9 @@ import type {
 } from "@/lib/api/types/user-address.types";
 
 type UnknownRecord = Record<string, unknown>;
+type CachedRegionRequestOptions = {
+  force?: boolean;
+};
 
 const asObject = (value: unknown): UnknownRecord =>
   value && typeof value === "object" ? (value as UnknownRecord) : {};
@@ -130,13 +133,94 @@ const asRegionOption = (value: unknown): RegionOption | null => {
   };
 };
 
-const extractRegionList = (payload: unknown): RegionOption[] => {
-  const source = asObject(payload);
-  const data = Array.isArray(source.data) ? source.data : [];
+const cloneRegionOptions = (rows: RegionOption[]): RegionOption[] => rows.map((row) => ({ ...row }));
 
-  return data
+const getRegionRows = (payload: unknown): unknown[] => {
+  const source = asObject(payload);
+  const data = source.data;
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  const nestedData = asObject(data);
+  if (Array.isArray(nestedData.results)) {
+    return nestedData.results;
+  }
+
+  const wrappedRajaOngkir = asObject(source.rajaongkir);
+  if (Array.isArray(wrappedRajaOngkir.results)) {
+    return wrappedRajaOngkir.results;
+  }
+
+  if (Array.isArray(source.results)) {
+    return source.results;
+  }
+
+  return [];
+};
+
+const extractRegionList = (payload: unknown): RegionOption[] => {
+  return getRegionRows(payload)
     .map(asRegionOption)
     .filter((item): item is RegionOption => item !== null);
+};
+
+const regionCache = {
+  provinces: null as RegionOption[] | null,
+  cities: new Map<string, RegionOption[]>(),
+  districts: new Map<string, RegionOption[]>(),
+  subdistricts: new Map<string, RegionOption[]>(),
+};
+
+const regionPendingRequests = {
+  provinces: null as Promise<RegionOption[]> | null,
+  cities: new Map<string, Promise<RegionOption[]>>(),
+  districts: new Map<string, Promise<RegionOption[]>>(),
+  subdistricts: new Map<string, Promise<RegionOption[]>>(),
+};
+
+const normalizeRegionKey = (value: string): string => value.trim();
+
+const getCachedMappedRegionOptions = (
+  store: Map<string, RegionOption[]>,
+  key: string
+): RegionOption[] => cloneRegionOptions(store.get(normalizeRegionKey(key)) ?? []);
+
+const runCachedRegionRequest = async (
+  key: string,
+  cacheStore: Map<string, RegionOption[]>,
+  pendingStore: Map<string, Promise<RegionOption[]>>,
+  request: () => Promise<RegionOption[]>,
+  options?: CachedRegionRequestOptions
+): Promise<RegionOption[]> => {
+  const normalizedKey = normalizeRegionKey(key);
+  const shouldForce = options?.force === true;
+
+  if (!shouldForce) {
+    const cachedRows = cacheStore.get(normalizedKey);
+    if (cachedRows) {
+      return cloneRegionOptions(cachedRows);
+    }
+
+    const pendingRequest = pendingStore.get(normalizedKey);
+    if (pendingRequest) {
+      return pendingRequest.then((rows) => cloneRegionOptions(rows));
+    }
+  }
+
+  const nextRequest = request()
+    .then((rows) => {
+      cacheStore.set(normalizedKey, cloneRegionOptions(rows));
+      return cloneRegionOptions(rows);
+    })
+    .finally(() => {
+      pendingStore.delete(normalizedKey);
+    });
+
+  pendingStore.set(normalizedKey, nextRequest);
+
+  return nextRequest.then((rows) => cloneRegionOptions(rows));
 };
 
 const shouldTryNextEndpoint = (error: unknown): boolean => {
@@ -165,6 +249,22 @@ const tryAddressMutation = async <T extends { data: unknown }>(attempts: Array<(
 };
 
 export const userAddressApi = {
+  getCachedProvinces(): RegionOption[] {
+    return cloneRegionOptions(regionCache.provinces ?? []);
+  },
+
+  getCachedCities(provinceId: string): RegionOption[] {
+    return getCachedMappedRegionOptions(regionCache.cities, provinceId);
+  },
+
+  getCachedDistricts(cityId: string): RegionOption[] {
+    return getCachedMappedRegionOptions(regionCache.districts, cityId);
+  },
+
+  getCachedSubdistricts(districtId: string): RegionOption[] {
+    return getCachedMappedRegionOptions(regionCache.subdistricts, districtId);
+  },
+
   async getAll(): Promise<UserAddress[]> {
     const response = await api.get<UserAddressApiResponse<UserAddress[]>>("/user-addresses");
     return extractList(response.data);
@@ -215,32 +315,78 @@ export const userAddressApi = {
     ]);
   },
 
-  async getProvinces(): Promise<RegionOption[]> {
-    const response = await api.get<UserAddressApiResponse<RegionOption[]>>("/rajaongkir/provinces");
-    return extractRegionList(response.data);
+  async getProvinces(options?: CachedRegionRequestOptions): Promise<RegionOption[]> {
+    const shouldForce = options?.force === true;
+
+    if (!shouldForce && regionCache.provinces) {
+      return cloneRegionOptions(regionCache.provinces);
+    }
+
+    if (!shouldForce && regionPendingRequests.provinces) {
+      return regionPendingRequests.provinces.then((rows) => cloneRegionOptions(rows));
+    }
+
+    const nextRequest = api
+      .get<UserAddressApiResponse<RegionOption[]>>("/rajaongkir/provinces")
+      .then((response) => {
+        const rows = extractRegionList(response.data);
+        regionCache.provinces = cloneRegionOptions(rows);
+        return cloneRegionOptions(rows);
+      })
+      .finally(() => {
+        regionPendingRequests.provinces = null;
+      });
+
+    regionPendingRequests.provinces = nextRequest;
+
+    return nextRequest.then((rows) => cloneRegionOptions(rows));
   },
 
-  async getCities(provinceId: string): Promise<RegionOption[]> {
-    const response = await api.get<UserAddressApiResponse<RegionOption[]>>("/rajaongkir/cities", {
-      params: { province_id: provinceId },
-    });
+  async getCities(provinceId: string, options?: CachedRegionRequestOptions): Promise<RegionOption[]> {
+    return runCachedRegionRequest(
+      provinceId,
+      regionCache.cities,
+      regionPendingRequests.cities,
+      async () => {
+        const response = await api.get<UserAddressApiResponse<RegionOption[]>>("/rajaongkir/cities", {
+          params: { province_id: provinceId },
+        });
 
-    return extractRegionList(response.data);
+        return extractRegionList(response.data);
+      },
+      options
+    );
   },
 
-  async getSubdistricts(districtId: string): Promise<RegionOption[]> {
-    const response = await api.get<UserAddressApiResponse<RegionOption[]>>("/rajaongkir/subdistricts", {
-      params: { district_id: districtId },
-    });
+  async getSubdistricts(districtId: string, options?: CachedRegionRequestOptions): Promise<RegionOption[]> {
+    return runCachedRegionRequest(
+      districtId,
+      regionCache.subdistricts,
+      regionPendingRequests.subdistricts,
+      async () => {
+        const response = await api.get<UserAddressApiResponse<RegionOption[]>>("/rajaongkir/subdistricts", {
+          params: { district_id: districtId },
+        });
 
-    return extractRegionList(response.data);
+        return extractRegionList(response.data);
+      },
+      options
+    );
   },
 
-  async getDistricts(cityId: string): Promise<RegionOption[]> {
-    const response = await api.get<UserAddressApiResponse<RegionOption[]>>("/rajaongkir/districts", {
-      params: { city_id: cityId },
-    });
+  async getDistricts(cityId: string, options?: CachedRegionRequestOptions): Promise<RegionOption[]> {
+    return runCachedRegionRequest(
+      cityId,
+      regionCache.districts,
+      regionPendingRequests.districts,
+      async () => {
+        const response = await api.get<UserAddressApiResponse<RegionOption[]>>("/rajaongkir/districts", {
+          params: { city_id: cityId },
+        });
 
-    return extractRegionList(response.data);
+        return extractRegionList(response.data);
+      },
+      options
+    );
   },
 };

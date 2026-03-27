@@ -3,7 +3,7 @@ import Link from "next/link";
 
 const socialIcons = [
   "/assets/images/icons/instagram.svg",
-  "/assets/images/icons/tiktok.svg",
+  "/assets/images/icons/tiktok.png",
   "/assets/images/icons/youtube.svg",
   "/assets/images/icons/threads.svg",
 ];

@@ -15,8 +15,21 @@ export type CheckoutShippingOption = {
 export type ShippingCostResult = {
   courier: string;
   destinationCityId: string;
+  destinationDistrictId: string | null;
+  itemWeight: number;
+  packagingWeight: number;
   weight: number;
+  strictMode: boolean;
   options: CheckoutShippingOption[];
+};
+
+export type ShippingCostPayload = {
+  courier: string;
+  address_id?: string;
+  city_id?: string;
+  district_id?: string;
+  weight?: number;
+  items?: CheckoutProcessItemPayload[];
 };
 
 export type CheckoutProcessItemPayload = {
@@ -196,7 +209,7 @@ const mapCheckoutOrder = (raw: unknown): CheckoutOrder => {
 };
 
 export const checkoutApi = {
-  async getShippingCost(payload: { city_id: string; weight: number; courier: string }): Promise<ShippingCostResult> {
+  async getShippingCost(payload: ShippingCostPayload): Promise<ShippingCostResult> {
     try {
       const response = await api.post("/shipping/cost", payload);
       const source = toObject(response.data);
@@ -205,8 +218,12 @@ export const checkoutApi = {
 
       return {
         courier: toStringValue(data.courier) ?? payload.courier,
-        destinationCityId: toStringValue(data.destination_city_id) ?? payload.city_id,
-        weight: Math.max(1, Math.round(toNumberValue(data.weight) || payload.weight)),
+        destinationCityId: toStringValue(data.destination_city_id) ?? payload.city_id ?? "",
+        destinationDistrictId: toStringValue(data.destination_district_id),
+        itemWeight: Math.max(0, Math.round(toNumberValue(data.item_weight))),
+        packagingWeight: Math.max(0, Math.round(toNumberValue(data.packaging_weight))),
+        weight: Math.max(1, Math.round(toNumberValue(data.weight) || toNumberValue(payload.weight) || 1)),
+        strictMode: Boolean(data.strict_mode),
         options: options
           .map(mapShippingOption)
           .filter((item): item is CheckoutShippingOption => item !== null),

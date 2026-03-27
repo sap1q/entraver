@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronsUpDown, Loader2, Plus } from "lucide-react";
+import { useProductSyncStatus } from "@/hooks/useProductSyncStatus";
 import api, { isAxiosError } from "@/lib/axios";
 import { patchProductStatus } from "@/lib/api/product";
+import { sumSharedInventoryStockFromVariantRows } from "@/lib/sharedInventory";
+import { formatDateTimeID } from "@/lib/utils/formatter";
 import { useDebounce } from "@/src/hooks/useDebounce";
 import ProductTable, { type ProductTableProduct } from "@/components/features/products/ProductTable";
 
@@ -17,6 +20,7 @@ type ApiPhoto = string | { url?: string | null; is_primary?: boolean | null } | 
 type ApiProduct = {
   id: string;
   name: string;
+  slug?: string | null;
   brand?: string | null;
   spu?: string | null;
   status?: string | null;
@@ -25,6 +29,9 @@ type ApiProduct = {
   is_featured?: boolean | null;
   jurnal_id?: string | null;
   jurnal_metadata?: unknown;
+  mekari_status?: {
+    sync_status?: string | null;
+  } | null;
   main_image?: string | null;
   photos?: ApiPhoto[] | null;
   inventory?: {
@@ -104,6 +111,9 @@ const parsePrice = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const hasPositivePrice = (value: number | null | undefined): boolean =>
+  typeof value === "number" && Number.isFinite(value) && value > 0;
+
 const normalizeStatus = (status: string | null | undefined): ProductVisibilityStatus => {
   const normalized = String(status ?? "").trim().toLowerCase();
   if (normalized === "inactive") return "inactive";
@@ -150,6 +160,17 @@ const resolveJurnalArchived = (metadata: unknown): boolean => {
   return false;
 };
 
+const resolveJurnalReady = (product: ApiProduct): boolean => {
+  const syncState = String(product.mekari_status?.sync_status ?? "")
+    .trim()
+    .toLowerCase();
+
+  return (
+    Boolean(product.jurnal_id) ||
+    new Set(["activate", "active", "created", "imported_from_jurnal", "success", "synced", "updated"]).has(syncState)
+  );
+};
+
 const mapApiProduct = (product: ApiProduct): ProductTableProduct => {
   const variantRows = Array.isArray(product.variant_pricing) ? product.variant_pricing : [];
 
@@ -163,17 +184,29 @@ const mapApiProduct = (product: ApiProduct): ProductTableProduct => {
       stock: Number(variant.stock ?? 0),
       offlinePrice: parsePrice(variant.offline_price),
       entraversePrice: parsePrice(variant.entraverse_price ?? variant.price),
+      tiktokPrice: parsePrice(variant.tiktok_price),
       tokopediaPrice: parsePrice(variant.tokopedia_price),
       shopeePrice: parsePrice(variant.shopee_price),
     };
   });
 
-  const totalStock = product.inventory?.total_stock ?? normalizedVariants.reduce((sum, item) => sum + item.stock, 0);
+  const groupedTotalStock = sumSharedInventoryStockFromVariantRows(variantRows);
+  const totalStock =
+    variantRows.length > 0
+      ? groupedTotalStock
+      : (product.inventory?.total_stock ?? normalizedVariants.reduce((sum, item) => sum + item.stock, 0));
   const status = normalizeStatus(product.status ?? product.product_status);
+  const jurnalReady = resolveJurnalReady(product);
 
   return {
     id: product.id,
     name: product.name,
+    slug: String(product.slug ?? product.name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-"),
     brand: product.brand ?? null,
     spu: product.spu ?? "N/A",
     jurnal_id: product.jurnal_id ?? null,
@@ -185,7 +218,11 @@ const mapApiProduct = (product: ApiProduct): ProductTableProduct => {
     status,
     stock_status: normalizeStockStatus(product.stock_status, totalStock),
     is_featured: Boolean(product.is_featured),
-    platforms: ["web", "tiktok"],
+    marketplaceSync: {
+      tokopedia: jurnalReady && normalizedVariants.some((variant) => hasPositivePrice(variant.tokopediaPrice)),
+      tiktok: jurnalReady && normalizedVariants.some((variant) => hasPositivePrice(variant.tiktokPrice)),
+      shopee: jurnalReady && normalizedVariants.some((variant) => hasPositivePrice(variant.shopeePrice)),
+    },
     variant_pricing: normalizedVariants,
   };
 };
@@ -299,6 +336,7 @@ const buildFetchErrorState = (error: unknown): FetchErrorState => {
 };
 
 export default function MasterProdukPage() {
+  const { metrics: syncMetrics, loading: syncMetricsLoading } = useProductSyncStatus();
   const [products, setProducts] = useState<ProductTableProduct[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ProductVisibilityStatus>("all");
@@ -495,19 +533,14 @@ export default function MasterProdukPage() {
     }
   }, [refreshProducts]);
 
+  const inboundSyncLabel = syncMetrics.latestInboundSync ? formatDateTimeID(syncMetrics.latestInboundSync) : "Belum ada data";
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
       <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-800">Produk</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Kelola katalog produk Anda, atur visibilitas produk, dan tandai produk unggulan.
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Terakhir disinkronisasi Mekari Jurnal pada{" "}
-              <span className="font-semibold text-slate-800">Sabtu, 28 Februari 2026 pukul 23.00</span>
-            </p>
+            <h1 className="text-2xl font-semibold text-slate-800">Master Produk</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -518,7 +551,7 @@ export default function MasterProdukPage() {
               className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3.5 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-50"
             >
               {mappingJurnal ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronsUpDown className="h-4 w-4" />}
-              {mappingJurnal ? "Menarik dari Jurnal..." : "Petakan produk"}
+              {mappingJurnal ? "Menarik dari Jurnal..." : "Tarik dari Jurnal"}
             </button>
             <Link
               href="/admin/master-produk/tambah"
@@ -536,6 +569,23 @@ export default function MasterProdukPage() {
         {quickStatusMessage ? (
           <p className="mt-2 text-xs text-rose-600">{quickStatusMessage}</p>
         ) : null}
+
+        <div className="mt-5 grid gap-3 xl:grid-cols-2">
+          <article className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Last Inbound Sync</p>
+            <p className="mt-2 text-base font-semibold text-slate-900">
+              {syncMetricsLoading ? "Memuat..." : inboundSyncLabel}
+            </p>
+          </article>
+
+          <article className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">Master Products Loaded</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-900">
+              {syncMetricsLoading ? "..." : syncMetrics.masterProductCount}
+            </p>
+          </article>
+        </div>
+
       </section>
 
       <ProductTable

@@ -14,7 +14,9 @@ const escapeHtml = (value: string): string =>
 
 const hasHtmlTag = (value: string): boolean => /<\/?[a-z][\s\S]*>/i.test(value);
 const isSpacerMarker = (value: string): boolean => /^-$/.test(value.trim());
-const SPACER_TOKEN = "__DESCRIPTION_SPACER__";
+const LEADING_DASH_REGEX = /^\s*-\s+/;
+
+const stripLeadingDashMarker = (value: string): string => value.replace(LEADING_DASH_REGEX, "").trim();
 
 const parsePlainTextBlocks = (value: string): string[] => {
   const lines = value.split("\n");
@@ -34,7 +36,6 @@ const parsePlainTextBlocks = (value: string): string[] => {
 
     if (isSpacerMarker(trimmed)) {
       flushCurrent();
-      blocks.push(SPACER_TOKEN);
       return;
     }
 
@@ -43,7 +44,7 @@ const parsePlainTextBlocks = (value: string): string[] => {
       return;
     }
 
-    current.push(line);
+    current.push(stripLeadingDashMarker(line));
   });
 
   flushCurrent();
@@ -55,8 +56,9 @@ export const toDescriptionHtml = (value: string): string => {
   if (!normalized) return "<p></p>";
   if (hasHtmlTag(normalized)) return normalized;
 
-  const paragraphs = parsePlainTextBlocks(normalized)
-    .map((chunk) => (chunk === SPACER_TOKEN ? "<p><br></p>" : `<p>${escapeHtml(chunk).replace(/\n/g, "<br>")}</p>`));
+  const paragraphs = parsePlainTextBlocks(normalized).map(
+    (chunk) => `<p>${escapeHtml(chunk).replace(/\n/g, "<br>")}</p>`
+  );
 
   return paragraphs.length > 0 ? paragraphs.join("") : "<p></p>";
 };
@@ -78,10 +80,15 @@ export const normalizeDescriptionHtml = (value: string): string => {
 
   const blockSelector = "p,li,blockquote,h1,h2,h3,h4,h5,h6";
   documentNode.querySelectorAll(blockSelector).forEach((node) => {
-    const text = normalizePlainTextSpacing(node.textContent ?? "");
+    const rawText = normalizePlainTextSpacing(node.textContent ?? "");
+    const text = stripLeadingDashMarker(rawText);
     if (!text && !node.querySelector("br")) {
       node.remove();
       return;
+    }
+
+    if (text !== rawText) {
+      node.textContent = text;
     }
   });
 
@@ -91,7 +98,7 @@ export const normalizeDescriptionHtml = (value: string): string => {
   let normalized = htmlWithBlockSpacing
     .replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>")
     .replace(/<p>\s*<\/p>/gi, "<p><br></p>")
-    .replace(/<p>\s*-\s*<\/p>/gi, "<p><br></p>")
+    .replace(/<p>\s*-\s*<\/p>/gi, "")
     .trim();
 
   if (!normalized) normalized = "<p></p>";

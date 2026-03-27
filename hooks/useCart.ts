@@ -413,6 +413,25 @@ export const useCart = () => {
     writeItems(nextItems);
   }, []);
 
+  const consumeItems = useCallback((itemIds: string[]) => {
+    if (itemIds.length === 0) return;
+
+    const targetIds = new Set(
+      itemIds
+        .map((itemId) => String(itemId ?? "").trim())
+        .filter((itemId) => itemId.length > 0)
+    );
+
+    if (targetIds.size === 0) return;
+
+    const previousItems = parseStorageItems();
+    const nextItems = previousItems.filter((item) => !targetIds.has(item.id));
+
+    if (nextItems.length === previousItems.length) return;
+
+    writeItems(nextItems);
+  }, []);
+
   const summary = useMemo<CartSummary>(() => {
     const selectedItems = items.filter((item) => item.selected);
     const totalPrice = selectedItems.reduce((total, item) => total + (item.price * item.quantity), 0);
@@ -451,6 +470,7 @@ export const useCart = () => {
     addToCart,
     updateItemQuantity,
     removeItem,
+    consumeItems,
     toggleItemSelection,
     toggleSelectAll,
     refreshCart,

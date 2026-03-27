@@ -1,4 +1,4 @@
-import api, { isAxiosError } from "@/lib/axios";
+import api, { ensureCsrfCookie, isAxiosError } from "@/lib/axios";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -39,9 +39,30 @@ export type CustomerOrderPrimaryItem = {
   productImage: string | null;
 };
 
+export type CustomerOrderPaymentDetails = {
+  statusLabel: string;
+  isPending: boolean;
+  paymentType: string | null;
+  methodCode: string | null;
+  methodLabel: string;
+  channelCode: string | null;
+  channelLabel: string | null;
+  accountLabel: string | null;
+  accountNumber: string | null;
+  secondaryLabel: string | null;
+  secondaryValue: string | null;
+  expiryTime: string | null;
+  totalAmount: number;
+  pdfUrl: string | null;
+  statusMessage: string | null;
+  canResumePayment: boolean;
+  instructions: string[];
+};
+
 export type CustomerOrder = {
   id: string;
   orderNumber: string;
+  invoiceNumber: string | null;
   status: string;
   statusStageCode: string;
   statusStep: number;
@@ -64,6 +85,9 @@ export type CustomerOrder = {
   customerPhone: string | null;
   customerEmail: string | null;
   customerAddress: string | null;
+  canResumePayment: boolean;
+  canConfirmReceived: boolean;
+  paymentDetails: CustomerOrderPaymentDetails | null;
   primaryItem: CustomerOrderPrimaryItem | null;
   items: CustomerOrderItem[];
   createdAt: string | null;
@@ -90,6 +114,7 @@ export type CustomerOrderListResult = {
 export type CustomerOrderPaymentResult = {
   orderId: string;
   orderNumber: string;
+  invoiceNumber: string | null;
   paymentStatus: string;
   status: string;
   statusStep: number;
@@ -98,11 +123,16 @@ export type CustomerOrderPaymentResult = {
   snapRedirectUrl: string | null;
   midtransClientKey: string;
   midtransSnapJsUrl: string;
+  paymentDetails: CustomerOrderPaymentDetails | null;
 };
+
+const SUCCESS_ORDER_STAGE_CODES = new Set(["completed"]);
+const TRACKABLE_ORDER_STAGE_CODES = new Set(["order_shipped", "order_delivered"]);
+const CANCELLABLE_ORDER_STAGE_CODES = new Set(["waiting_payment", "waiting_confirmation"]);
 
 const DEFAULT_PROGRESS_STAGES: CustomerOrderProgressStage[] = [
   { step: 1, code: "waiting_payment", label: "Menunggu Pembayaran" },
-  { step: 2, code: "waiting_confirmation", label: "Menunggu Konfirmasi" },
+  { step: 2, code: "waiting_confirmation", label: "Dikonfirmasi" },
   { step: 3, code: "order_shipped", label: "Pesanan Dikirim" },
   { step: 4, code: "order_delivered", label: "Pesanan Terkirim" },
   { step: 5, code: "completed", label: "Selesai" },
@@ -241,11 +271,21 @@ const resolveStatusFallback = (
     };
   }
 
-  if (normalizedStatus === "diproses" || SUCCESS_PAYMENT_STATUSES.has(normalizedPaymentStatus)) {
+  if (normalizedStatus === "diproses") {
     return {
       statusStageCode: "waiting_confirmation",
       statusStep: 2,
-      statusLabel: "Menunggu Konfirmasi",
+      statusLabel: "Diproses",
+      statusGroup: "ongoing",
+      canTrackPackage: false,
+    };
+  }
+
+  if (SUCCESS_PAYMENT_STATUSES.has(normalizedPaymentStatus)) {
+    return {
+      statusStageCode: "waiting_confirmation",
+      statusStep: 2,
+      statusLabel: "Dikonfirmasi",
       statusGroup: "ongoing",
       canTrackPackage: false,
     };
@@ -304,6 +344,42 @@ const mapPrimaryItem = (raw: unknown): CustomerOrderPrimaryItem | null => {
   };
 };
 
+const mapPaymentDetails = (raw: unknown): CustomerOrderPaymentDetails | null => {
+  const row = toObject(raw);
+  const methodLabel = toStringValue(row.method_label);
+  const statusLabel = toStringValue(row.status_label);
+
+  if (!methodLabel && !statusLabel && !toStringValue(row.account_number)) {
+    return null;
+  }
+
+  const instructions = Array.isArray(row.instructions)
+    ? row.instructions
+        .map((item) => toStringValue(item))
+        .filter((item): item is string => item !== null)
+    : [];
+
+  return {
+    statusLabel: statusLabel ?? "Menunggu Pembayaran",
+    isPending: toBooleanValue(row.is_pending) ?? false,
+    paymentType: toStringValue(row.payment_type),
+    methodCode: toStringValue(row.method_code),
+    methodLabel: methodLabel ?? "Metode Pembayaran",
+    channelCode: toStringValue(row.channel_code),
+    channelLabel: toStringValue(row.channel_label),
+    accountLabel: toStringValue(row.account_label),
+    accountNumber: toStringValue(row.account_number),
+    secondaryLabel: toStringValue(row.secondary_label),
+    secondaryValue: toStringValue(row.secondary_value),
+    expiryTime: toStringValue(row.expiry_time),
+    totalAmount: toNumberValue(row.total_amount),
+    pdfUrl: toStringValue(row.pdf_url),
+    statusMessage: toStringValue(row.status_message),
+    canResumePayment: toBooleanValue(row.can_resume_payment) ?? false,
+    instructions,
+  };
+};
+
 const mapOrder = (raw: unknown): CustomerOrder => {
   const row = toObject(raw);
   const items = Array.isArray(row.items) ? row.items : [];
@@ -317,6 +393,7 @@ const mapOrder = (raw: unknown): CustomerOrder => {
   return {
     id: toStringValue(row.id) ?? "",
     orderNumber: toStringValue(row.order_number) ?? "",
+    invoiceNumber: toStringValue(row.invoice_number),
     status,
     statusStageCode: toStringValue(row.status_stage_code) ?? statusFallback.statusStageCode,
     statusStep,
@@ -339,6 +416,9 @@ const mapOrder = (raw: unknown): CustomerOrder => {
     customerPhone: toStringValue(row.customer_phone),
     customerEmail: toStringValue(row.customer_email),
     customerAddress: toStringValue(row.customer_address),
+    canResumePayment: toBooleanValue(row.can_resume_payment) ?? false,
+    canConfirmReceived: toBooleanValue(row.can_confirm_received) ?? false,
+    paymentDetails: mapPaymentDetails(row.payment_details),
     primaryItem: mapPrimaryItem(row.primary_item),
     items: items.map(mapOrderItem),
     createdAt: toStringValue(row.created_at),
@@ -370,6 +450,38 @@ const mapFilterOption = (raw: unknown): CustomerOrderFilterOption | null => {
     key,
     label,
   };
+};
+
+const normalizeStageCode = (order: CustomerOrder): string => order.statusStageCode.trim().toLowerCase();
+const normalizeStatus = (order: CustomerOrder): string => order.status.trim().toLowerCase();
+const normalizePaymentStatus = (order: CustomerOrder): string => order.paymentStatus.trim().toLowerCase();
+
+export const canCustomerOrderBeCancelled = (order: CustomerOrder): boolean => {
+  if (order.statusGroup === "cancelled") return false;
+
+  const stageCode = normalizeStageCode(order);
+  const status = normalizeStatus(order);
+  const paymentStatus = normalizePaymentStatus(order);
+
+  if (SUCCESS_ORDER_STAGE_CODES.has(stageCode) || TRACKABLE_ORDER_STAGE_CODES.has(stageCode)) {
+    return false;
+  }
+
+  if (CANCELLABLE_ORDER_STAGE_CODES.has(stageCode)) {
+    return true;
+  }
+
+  return status === "dibayar" || status === "menunggu pembayaran" || SUCCESS_PAYMENT_STATUSES.has(paymentStatus);
+};
+
+export const canCustomerOrderTrackShipment = (order: CustomerOrder): boolean => {
+  if (order.statusGroup === "cancelled") return false;
+  return TRACKABLE_ORDER_STAGE_CODES.has(normalizeStageCode(order));
+};
+
+export const canCustomerOrderRequestReturn = (order: CustomerOrder): boolean => {
+  if (order.statusGroup === "cancelled") return false;
+  return SUCCESS_ORDER_STAGE_CODES.has(normalizeStageCode(order));
 };
 
 export const customerOrdersApi = {
@@ -414,7 +526,7 @@ export const customerOrdersApi = {
 
   async getPayment(orderId: string): Promise<CustomerOrderPaymentResult> {
     try {
-      const response = await api.post(`/orders/${orderId}/payment`);
+      const response = await api.get(`/orders/${orderId}/payment`);
       const source = toObject(response.data);
       const data = toObject(source.data);
       const order = toObject(data.order);
@@ -422,6 +534,7 @@ export const customerOrdersApi = {
       return {
         orderId: toStringValue(order.id) ?? orderId,
         orderNumber: toStringValue(order.order_number) ?? "",
+        invoiceNumber: toStringValue(order.invoice_number),
         paymentStatus: toStringValue(order.payment_status) ?? "pending",
         status: toStringValue(order.status) ?? "",
         statusStep: clampStep(toNumberValue(order.status_step) || 1),
@@ -431,9 +544,42 @@ export const customerOrdersApi = {
         midtransClientKey: toStringValue(data.midtrans_client_key) ?? "",
         midtransSnapJsUrl:
           toStringValue(data.midtrans_snap_js_url) ?? "https://app.sandbox.midtrans.com/snap/snap.js",
+        paymentDetails: mapPaymentDetails(data.payment_details),
       };
     } catch (error) {
       throw new Error(extractErrorMessage(error, "Gagal memuat data pembayaran transaksi."));
+    }
+  },
+
+  async getOrder(orderId: string): Promise<CustomerOrder> {
+    try {
+      const response = await api.get(`/orders/${orderId}`);
+      const source = toObject(response.data);
+      return mapOrder(source.data);
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, "Gagal memuat detail transaksi."));
+    }
+  },
+
+  async confirmReceived(orderId: string): Promise<CustomerOrder> {
+    try {
+      await ensureCsrfCookie(true);
+      const response = await api.post(`/orders/${orderId}/received`, {});
+      const source = toObject(response.data);
+      return mapOrder(source.data);
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 419) {
+        try {
+          await ensureCsrfCookie(true);
+          const response = await api.post(`/orders/${orderId}/received`, {});
+          const source = toObject(response.data);
+          return mapOrder(source.data);
+        } catch (retryError) {
+          throw new Error(extractErrorMessage(retryError, "Gagal mengonfirmasi pesanan diterima."));
+        }
+      }
+
+      throw new Error(extractErrorMessage(error, "Gagal mengonfirmasi pesanan diterima."));
     }
   },
 };

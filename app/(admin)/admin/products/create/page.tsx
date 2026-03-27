@@ -10,6 +10,7 @@ import { useProductForm } from "@/hooks/useProductForm";
 import { useProductSubmit } from "@/hooks/useProductSubmit";
 import { buildMediaSubmission } from "@/lib/product-media";
 import { normalizeDescriptionHtml } from "@/lib/description";
+import { sumSharedInventoryStockFromCombinations } from "@/lib/sharedInventory";
 
 export default function CreateProductPage() {
   const [saveMessage, setSaveMessage] = useState("");
@@ -81,7 +82,7 @@ export default function CreateProductPage() {
       trade_in: form.tradeIn,
       description: normalizeDescriptionHtml(form.description),
       inventory: {
-        total_stock: variantPricingPayload.reduce((sum, row) => sum + row.stock, 0),
+        total_stock: sumSharedInventoryStockFromCombinations(combinations, matrixData),
         weight: form.inventoryPlan.weight,
         dimensions_cm: form.inventoryPlan.length
           ? { length: form.inventoryPlan.length, width: form.inventoryPlan.width, height: form.inventoryPlan.height }

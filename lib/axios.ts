@@ -1,4 +1,9 @@
 import axios, { isAxiosError, type AxiosError } from "axios";
+import {
+  getSessionRole,
+  resolveUnauthorizedDestination,
+  usesAuthenticatedApi,
+} from "@/src/lib/auth/access";
 import { TokenService } from "@/src/lib/auth/tokens";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
@@ -12,30 +17,25 @@ const API_ORIGIN = (() => {
 
 const CSRF_COOKIE_ENDPOINT = `${API_ORIGIN}/sanctum/csrf-cookie`;
 const CSRF_REFRESH_INTERVAL = 4 * 60 * 60 * 1000;
-const BEARER_TOKEN_API_PATTERNS = [
-  "/v1/admin",
-  "/v1/integrations/jurnal",
-  "/user-addresses",
-  "/user/addresses",
-  "/shipping/cost",
-  "/checkout/process",
-  "/orders",
-];
 
 let csrfCookiePromise: Promise<void> | null = null;
 let csrfLastFetched = 0;
 
 const usesBearerToken = (url: string): boolean => {
-  if (!url) return false;
-  return BEARER_TOKEN_API_PATTERNS.some((pattern) => url.includes(pattern));
+  return usesAuthenticatedApi(url);
 };
 
-const ensureCsrfCookie = async () => {
+const ensureCsrfCookie = async (force = false) => {
   if (typeof window === "undefined") return;
 
   const now = Date.now();
-  if (csrfCookiePromise && (now - csrfLastFetched) < CSRF_REFRESH_INTERVAL) {
+  if (!force && csrfCookiePromise && (now - csrfLastFetched) < CSRF_REFRESH_INTERVAL) {
     return csrfCookiePromise;
+  }
+
+  if (force) {
+    csrfCookiePromise = null;
+    csrfLastFetched = 0;
   }
 
   csrfCookiePromise = axios
@@ -129,6 +129,7 @@ const handleUnauthorizedResponse = async (
     requestUrl.includes("/sanctum/csrf-cookie");
 
   if (status === 401 && !isAuthFlowRequest && usesBearerToken(requestUrl)) {
+    const sessionRole = getSessionRole();
     const originalRequest = (error.config ?? {}) as Record<string, unknown> & {
       _retry?: boolean;
       headers?: Record<string, string>;
@@ -149,11 +150,15 @@ const handleUnauthorizedResponse = async (
 
     clearPersistedAuth();
     if (typeof window !== "undefined") {
-      const isOnLoginPage = window.location.pathname.startsWith("/auth/login");
-      if (!isOnLoginPage) {
-        const currentPath = window.location.pathname + window.location.search;
-        const redirect = encodeURIComponent(currentPath);
-        window.location.href = `/auth/login?redirect=${redirect}`;
+      const currentPath = window.location.pathname + window.location.search;
+      const nextLocation = resolveUnauthorizedDestination({
+        requestUrl,
+        currentPath,
+        sessionRole,
+      });
+
+      if (window.location.pathname + window.location.search !== nextLocation) {
+        window.location.href = nextLocation;
       }
     }
   }
@@ -237,4 +242,4 @@ apiUpload.interceptors.response.use(
 );
 
 export default api;
-export { isAxiosError };
+export { ensureCsrfCookie, isAxiosError };

@@ -6,6 +6,7 @@ import type { MatrixPricing, VariantCombination } from "@/types/product";
 import type { CategoryFees } from "@/types/category.types";
 import { calculateFinalBeli, DEFAULT_MATRIX_ROW } from "@/lib/utils";
 import type { WarrantyComponent, WarrantyPricingConfig } from "@/lib/warrantyProgram";
+import { sumSharedInventoryStockFromCombinations } from "@/lib/sharedInventory";
 import VariantTable from "@/components/features/products/VariantTable";
 import { useVariantCalculations } from "@/hooks/useVariantCalculations";
 import type { ShippingRates } from "@/types/product";
@@ -44,7 +45,7 @@ export default function VariantMatrix({
 
   const summary = useMemo(() => {
     const rows = combinations.map((combo) => calculateVariant({ ...DEFAULT_MATRIX_ROW, ...(matrixData[combo.key] ?? {}) }));
-    const totalStock = rows.reduce((sum, row) => sum + row.stock, 0);
+    const totalStock = sumSharedInventoryStockFromCombinations(combinations, matrixData);
     const avgPurchase = rows.length > 0 ? rows.reduce((sum, row) => sum + calculateFinalBeli(row), 0) / rows.length : 0;
     const warningCount = rows.filter((row) => row.procurementStatus !== "Normal").length;
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isAxiosError } from "@/lib/axios";
 import { userAddressApi } from "@/lib/api/user-address";
+import { hasStorefrontSession } from "@/src/lib/auth/access";
 import type { UserAddress, UserAddressPayload } from "@/lib/api/types/user-address.types";
 
 type AddressSnapshot = {
@@ -105,6 +106,14 @@ export const useAddress = () => {
       const force = options?.force ?? false;
       const silent = options?.silent ?? false;
 
+      if (!hasStorefrontSession()) {
+        if (!silent) {
+          setLoading(false);
+        }
+        setError(null);
+        return;
+      }
+
       if (!force && addressSnapshot.isLoaded) {
         return;
       }
@@ -155,6 +164,10 @@ export const useAddress = () => {
   }, [fetchAddresses]);
 
   const setMainAddress = useCallback(async (addressId: string) => {
+    if (!hasStorefrontSession()) {
+      return { success: false as const, message: "Silakan login sebagai user untuk mengatur alamat." };
+    }
+
     const trimmedId = addressId.trim();
     if (!trimmedId || trimmedId === addressSnapshot.selectedAddressId) {
       return { success: true as const };
@@ -181,6 +194,10 @@ export const useAddress = () => {
   }, []);
 
   const removeAddress = useCallback(async (addressId: string) => {
+    if (!hasStorefrontSession()) {
+      return { success: false as const, message: "Silakan login sebagai user untuk menghapus alamat." };
+    }
+
     const trimmedId = addressId.trim();
     if (!trimmedId) {
       return { success: false as const, message: "Alamat tidak valid." };
@@ -208,6 +225,12 @@ export const useAddress = () => {
   }, []);
 
   const createAddress = useCallback(async (payload: UserAddressPayload) => {
+    if (!hasStorefrontSession()) {
+      const message = "Silakan login sebagai user untuk menambah alamat.";
+      setError(message);
+      return { success: false as const, message };
+    }
+
     setError(null);
     try {
       const created = await userAddressApi.create(payload);
@@ -222,6 +245,12 @@ export const useAddress = () => {
   }, []);
 
   const updateAddress = useCallback(async (addressId: string, payload: UserAddressPayload) => {
+    if (!hasStorefrontSession()) {
+      const message = "Silakan login sebagai user untuk memperbarui alamat.";
+      setError(message);
+      return { success: false as const, message };
+    }
+
     setError(null);
     try {
       const updated = await userAddressApi.update(addressId, payload);

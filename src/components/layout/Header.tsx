@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, Search } from "lucide-react";
-import { AddressShortcut } from "@/src/components/layout/AddressShortcut";
+import { Menu } from "lucide-react";
 import { CartShortcut } from "@/src/components/layout/CartShortcut";
 import { ProfileShortcut } from "@/src/components/layout/ProfileShortcut";
 import { ProductMegaDropdown } from "@/src/components/layout/ProductMegaDropdown";
+import { StorefrontSearchBar } from "@/src/components/layout/StorefrontSearchBar";
 
 export function Header() {
   const [isMegaMenuOpen, setIsMegaMenuOpen] = useState(false);
@@ -102,17 +102,7 @@ export function Header() {
               <Menu className="h-5 w-5" strokeWidth={1.8} />
             </button>
 
-            <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3 text-slate-600 transition-colors focus-within:border-blue-300">
-              <AddressShortcut mode="pill" />
-              <span className="h-5 w-px bg-slate-200" aria-hidden />
-              <Search className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.6} />
-              <input
-                aria-label="Cari produk"
-                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-                defaultValue=""
-                placeholder="Cari produk di Entraverse"
-              />
-            </div>
+            <StorefrontSearchBar />
           </div>
 
           <div className="flex items-center gap-1 md:gap-2">
@@ -131,17 +121,7 @@ export function Header() {
               <Menu className="h-5 w-5" strokeWidth={1.8} />
             </Link>
 
-            <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3 text-slate-600 transition-colors focus-within:border-blue-300">
-              <AddressShortcut mode="pill" compact />
-              <span className="h-4 w-px bg-slate-200" aria-hidden />
-              <Search className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.6} />
-              <input
-                aria-label="Cari produk"
-                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-                defaultValue=""
-                placeholder="Cari produk di Entraverse"
-              />
-            </div>
+            <StorefrontSearchBar compact />
           </div>
         </div>
       </div>

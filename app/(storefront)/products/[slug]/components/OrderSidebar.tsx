@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { RefreshCcw, ShoppingCart, Zap } from "lucide-react";
@@ -15,6 +15,7 @@ interface OrderSidebarProps {
   product: ProductDetail;
   selectedPrice: number;
   selectedVariants: Record<string, string>;
+  selectedStock: number;
   selectedVariantSku?: string | null;
 }
 
@@ -24,18 +25,37 @@ const STOCK_STYLE: Record<ProductDetail["stock_status"], { label: string; classN
   out_of_stock: { label: "Stok habis", className: "text-rose-600" },
 };
 
-export const OrderSidebar = ({ product, selectedPrice, selectedVariants, selectedVariantSku }: OrderSidebarProps) => {
+export const OrderSidebar = ({
+  product,
+  selectedPrice,
+  selectedVariants,
+  selectedStock,
+  selectedVariantSku,
+}: OrderSidebarProps) => {
   const router = useRouter();
-  const [quantity, setQuantity] = useState(product.min_order ?? 1);
+  const minOrder = Math.max(1, product.min_order ?? 1);
+  const availableStock = Math.max(0, selectedStock);
+  const quantityLimit = availableStock > 0 ? Math.min(product.max_order ?? availableStock, availableStock) : 0;
+  const quantityMax = Math.max(minOrder, quantityLimit);
+  const selectedStockStatus: ProductDetail["stock_status"] =
+    availableStock <= 0 ? "out_of_stock" : availableStock <= 5 ? "low_stock" : "in_stock";
+  const [quantity, setQuantity] = useState(minOrder);
   const { addToCart, loading, error } = useCart();
 
-  const stockInfo = STOCK_STYLE[product.stock_status];
-  const outOfStock = product.stock_status === "out_of_stock" || product.stock <= 0;
+  const stockInfo = STOCK_STYLE[selectedStockStatus];
+  const outOfStock = selectedStockStatus === "out_of_stock" || availableStock < minOrder;
   const subtotal = useMemo(() => quantity * selectedPrice, [quantity, selectedPrice]);
 
   const variantSummary = Object.entries(selectedVariants)
     .map(([name, value]) => `${name}: ${value}`)
     .join(", ");
+
+  useEffect(() => {
+    setQuantity((current) => {
+      if (availableStock <= 0) return minOrder;
+      return Math.min(Math.max(current, minOrder), quantityMax);
+    });
+  }, [availableStock, minOrder, quantityMax]);
 
   const handleAddToCart = async () => {
     await addToCart(product.id, quantity, selectedVariants, {
@@ -44,8 +64,8 @@ export const OrderSidebar = ({ product, selectedPrice, selectedVariants, selecte
       image: product.image,
       price: selectedPrice,
       variantSku: selectedVariantSku ?? undefined,
-      stock: product.stock,
-      minOrder: product.min_order ?? 1,
+      stock: availableStock,
+      minOrder,
       tradeInEnabled: Boolean(product.trade_in),
     });
   };
@@ -57,8 +77,8 @@ export const OrderSidebar = ({ product, selectedPrice, selectedVariants, selecte
       image: product.image,
       price: selectedPrice,
       variantSku: selectedVariantSku ?? undefined,
-      stock: product.stock,
-      minOrder: product.min_order ?? 1,
+      stock: availableStock,
+      minOrder,
       tradeInEnabled: Boolean(product.trade_in),
     });
     if (result.success) {
@@ -78,10 +98,10 @@ export const OrderSidebar = ({ product, selectedPrice, selectedVariants, selecte
 
   return (
     <>
-      <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)] lg:sticky lg:top-24">
+      <aside className="h-full rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)]">
         <h2 className="text-2xl font-semibold text-slate-900">Rincian Pesanan</h2>
         <p className={cn("mt-2 text-sm font-semibold", stockInfo.className)}>
-          {stockInfo.label}: {product.stock}
+          {stockInfo.label}: {availableStock}
         </p>
 
         <div className="mt-5 space-y-4 text-sm">
@@ -90,8 +110,8 @@ export const OrderSidebar = ({ product, selectedPrice, selectedVariants, selecte
             <QuantitySelector
               value={quantity}
               onChange={setQuantity}
-              min={product.min_order ?? 1}
-              max={Math.max(product.max_order ?? product.stock, product.min_order ?? 1)}
+              min={minOrder}
+              max={quantityMax}
             />
           </div>
 

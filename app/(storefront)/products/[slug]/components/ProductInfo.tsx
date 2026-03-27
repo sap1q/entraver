@@ -1,5 +1,6 @@
 import { Star } from "lucide-react";
 import { ProductVariantSelector } from "./ProductVariantSelector";
+import { ProductAdminEditShortcut } from "./ProductAdminEditShortcut";
 import { RatingStars } from "@/components/ui/RatingStars";
 import { formatCompactNumber, formatCurrencyIDR } from "@/lib/utils/formatter";
 import type { ProductDetail } from "@/types/product.types";
@@ -18,7 +19,10 @@ export const ProductInfo = ({ product, selectedPrice, selectedVariants, onVarian
         Ready Stock
       </span>
 
-      <h1 className="mt-3 text-2xl font-semibold leading-tight text-slate-900 md:text-3xl">{product.name}</h1>
+      <div className="mt-3 flex items-start justify-between gap-3">
+        <h1 className="text-2xl font-semibold leading-tight text-slate-900 md:text-3xl">{product.name}</h1>
+        <ProductAdminEditShortcut productId={product.id} />
+      </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-500">
         <div className="inline-flex items-center gap-1.5">

@@ -237,6 +237,14 @@ export interface ProductApiResponse {
   };
 }
 
+export interface ProductSearchSuggestionResponse {
+  success: boolean;
+  data: Product[];
+  meta: {
+    keywords: string[];
+  };
+}
+
 export interface Category {
   id: string;
   name: string;
