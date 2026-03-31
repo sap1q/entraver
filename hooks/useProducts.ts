@@ -70,6 +70,11 @@ const parseSortValue = (value: string | null): NonNullable<ProductFilters["sort_
   return DEFAULT_SORT;
 };
 
+const parseBooleanFilter = (value: string | null): boolean => {
+  if (!value) return false;
+  return value === "1" || value.toLowerCase() === "true";
+};
+
 const parseStringFilters = (
   searchParams: Pick<URLSearchParams, "getAll">,
   key: string
@@ -147,6 +152,10 @@ const useProductsState = (forcedCategory?: string): UseProductsResult => {
     const search = searchParams.get("search");
     if (search && search.trim()) {
       filters.search = search.trim();
+    }
+
+    if (parseBooleanFilter(searchParams.get("trade_in"))) {
+      filters.trade_in = true;
     }
 
     return filters;

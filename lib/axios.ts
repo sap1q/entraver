@@ -17,6 +17,8 @@ const API_ORIGIN = (() => {
 
 const CSRF_COOKIE_ENDPOINT = `${API_ORIGIN}/sanctum/csrf-cookie`;
 const CSRF_REFRESH_INTERVAL = 4 * 60 * 60 * 1000;
+const XSRF_COOKIE_NAME = "XSRF-TOKEN";
+const XSRF_HEADER_NAME = "X-XSRF-TOKEN";
 
 let csrfCookiePromise: Promise<void> | null = null;
 let csrfLastFetched = 0;
@@ -58,6 +60,56 @@ const ensureCsrfCookie = async (force = false) => {
   return csrfCookiePromise;
 };
 
+const readCookieValue = (name: string): string | null => {
+  if (typeof document === "undefined") return null;
+
+  const target = `${name}=`;
+  const cookie = document.cookie
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith(target));
+
+  if (!cookie) return null;
+
+  const rawValue = cookie.slice(target.length);
+
+  try {
+    return decodeURIComponent(rawValue);
+  } catch {
+    return rawValue;
+  }
+};
+
+const syncXsrfHeader = (headers: unknown) => {
+  const token = readCookieValue(XSRF_COOKIE_NAME);
+  if (!token || !headers) return;
+
+  if (typeof headers === "object" && headers !== null && "set" in headers && typeof headers.set === "function") {
+    headers.set(XSRF_HEADER_NAME, token);
+    return;
+  }
+
+  if (typeof headers === "object" && headers !== null) {
+    (headers as Record<string, unknown>)[XSRF_HEADER_NAME] = token;
+  }
+};
+
+const clearXsrfHeader = (headers: unknown) => {
+  if (!headers || typeof headers !== "object") return;
+
+  const headerNames = [XSRF_HEADER_NAME, XSRF_HEADER_NAME.toLowerCase()];
+
+  if ("delete" in headers && typeof headers.delete === "function") {
+    headerNames.forEach((headerName) => headers.delete(headerName));
+    return;
+  }
+
+  const plainHeaders = headers as Record<string, unknown>;
+  headerNames.forEach((headerName) => {
+    delete plainHeaders[headerName];
+  });
+};
+
 export const getAuthToken = (): string | null => {
   return TokenService.hasValidToken() ? TokenService.getToken() : null;
 };
@@ -66,8 +118,9 @@ export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
   withCredentials: true,
-  xsrfCookieName: "XSRF-TOKEN",
-  xsrfHeaderName: "X-XSRF-TOKEN",
+  withXSRFToken: true,
+  xsrfCookieName: XSRF_COOKIE_NAME,
+  xsrfHeaderName: XSRF_HEADER_NAME,
   headers: {
     Accept: "application/json",
     "Content-Type": "application/json",
@@ -79,8 +132,9 @@ export const apiUpload = axios.create({
   baseURL: API_BASE_URL,
   timeout: 60000,
   withCredentials: true,
-  xsrfCookieName: "XSRF-TOKEN",
-  xsrfHeaderName: "X-XSRF-TOKEN",
+  withXSRFToken: true,
+  xsrfCookieName: XSRF_COOKIE_NAME,
+  xsrfHeaderName: XSRF_HEADER_NAME,
   headers: {
     Accept: "application/json",
     "X-Requested-With": "XMLHttpRequest",
@@ -170,6 +224,33 @@ const handleUnauthorizedResponse = async (
   return Promise.reject(error);
 };
 
+const retryOnCsrfMismatch = async (
+  error: AxiosError,
+  retryRequest: (requestConfig: Record<string, unknown>) => Promise<unknown>
+) => {
+  const status = error.response?.status;
+  const requestUrl = String(error.config?.url ?? "");
+  const method = String(error.config?.method ?? "get").toLowerCase();
+  const originalRequest = (error.config ?? {}) as Record<string, unknown> & {
+    _csrfRetry?: boolean;
+    headers?: unknown;
+  };
+
+  if (
+    status === 419 &&
+    !originalRequest._csrfRetry &&
+    ["post", "put", "patch", "delete"].includes(method) &&
+    !requestUrl.includes("/sanctum/csrf-cookie")
+  ) {
+    originalRequest._csrfRetry = true;
+    await ensureCsrfCookie(true);
+    clearXsrfHeader(originalRequest.headers);
+    return retryRequest(originalRequest);
+  }
+
+  return null;
+};
+
 api.interceptors.request.use(
   async (config) => {
     const method = String(config.method ?? "get").toLowerCase();
@@ -177,6 +258,7 @@ api.interceptors.request.use(
 
     if (["post", "put", "patch", "delete"].includes(method) && !requestUrl.includes("/sanctum/csrf-cookie")) {
       await ensureCsrfCookie();
+      syncXsrfHeader(config.headers);
     }
 
     const token = getAuthToken();
@@ -212,6 +294,7 @@ apiUpload.interceptors.request.use(
 
     if (["post", "put", "patch", "delete"].includes(method) && !requestUrl.includes("/sanctum/csrf-cookie")) {
       await ensureCsrfCookie();
+      syncXsrfHeader(config.headers);
     }
 
     const token = getAuthToken();
@@ -233,12 +316,26 @@ api.interceptors.response.use(
     }
     return response;
   },
-  (error: AxiosError) => handleUnauthorizedResponse(error, (requestConfig) => api(requestConfig))
+  async (error: AxiosError) => {
+    const csrfRetried = await retryOnCsrfMismatch(error, (requestConfig) => api(requestConfig));
+    if (csrfRetried) {
+      return csrfRetried;
+    }
+
+    return handleUnauthorizedResponse(error, (requestConfig) => api(requestConfig));
+  }
 );
 
 apiUpload.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => handleUnauthorizedResponse(error, (requestConfig) => apiUpload(requestConfig))
+  async (error: AxiosError) => {
+    const csrfRetried = await retryOnCsrfMismatch(error, (requestConfig) => apiUpload(requestConfig));
+    if (csrfRetried) {
+      return csrfRetried;
+    }
+
+    return handleUnauthorizedResponse(error, (requestConfig) => apiUpload(requestConfig));
+  }
 );
 
 export default api;

@@ -1,7 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -18,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { AccountShell } from "@/app/(storefront)/account/components/AccountShell";
+import { TradeInFulfillmentNotice } from "@/app/(storefront)/transaksi/components/TradeInFulfillmentNotice";
 import { Button } from "@/components/ui/Button";
 import { useRequireStorefrontAuth } from "@/hooks/useRequireStorefrontAuth";
 import type {
@@ -47,6 +47,7 @@ import {
   savePendingPaymentSession,
   type PendingPaymentSession,
 } from "@/lib/payments/midtrans-session";
+import { formatDisplayAddress } from "@/lib/utils/address";
 import { formatCurrencyIDR, formatDateID, formatDateTimeID } from "@/lib/utils/formatter";
 import { resolveApiAssetUrl } from "@/lib/utils/media";
 
@@ -84,12 +85,46 @@ const statusBadgeClass = (group: string): string => {
   }
 };
 
+const tradeInBadgeClass = "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+const isTradeInOrderItem = (
+  item: Pick<CustomerOrder["items"][number], "tradeInEnabled" | "tradeInTransactionId">
+): boolean => item.tradeInEnabled || Boolean(item.tradeInTransactionId);
+
+const isTradeInOnlyOrder = (order: CustomerOrder): boolean => {
+  if (order.kind === "trade_in") return true;
+
+  const tradeInItemCount = order.items.filter((item) => isTradeInOrderItem(item)).length;
+  return order.hasTradeIn && !order.requiresPayment && tradeInItemCount > 0 && tradeInItemCount === order.items.length;
+};
+
+const resolveTradeInReferenceAmount = (order: CustomerOrder): number => {
+  if (order.primaryItem && isTradeInOrderItem(order.primaryItem) && (order.primaryItem.tradeInEstimatedAmount ?? 0) > 0) {
+    return order.primaryItem.tradeInEstimatedAmount ?? 0;
+  }
+
+  return order.items.reduce((total, item) => {
+    if (!isTradeInOrderItem(item)) return total;
+    return total + Math.max(0, item.tradeInEstimatedAmount ?? 0);
+  }, 0);
+};
+
+const resolveOrderHeadlineLabel = (order: CustomerOrder): string =>
+  isTradeInOnlyOrder(order) ? "Nilai Trade-In" : "Total Harga";
+
+const resolveOrderHeadlineAmount = (order: CustomerOrder): number =>
+  isTradeInOnlyOrder(order) ? resolveTradeInReferenceAmount(order) : order.totalAmount;
+
 const toFriendlyError = (error: unknown): string => {
   if (error instanceof Error) return error.message;
   return "Terjadi gangguan saat menghubungkan ke API Laravel.";
 };
 
 const resolveOrderPaymentDetails = (order: CustomerOrder): CustomerOrderPaymentDetails | null => {
+  if (!order.requiresPayment) {
+    return order.paymentDetails;
+  }
+
   const snapshot = getPendingPaymentSnapshot(order.orderNumber);
 
   if (order.paymentDetails?.accountNumber || !snapshot) {
@@ -126,22 +161,18 @@ function OrderProgress({
   currentStep: number;
   stages: CustomerOrderProgressStage[];
 }) {
-  const orderedStages = useMemo(
-    () =>
-      [...stages]
-        .sort((left, right) => left.step - right.step)
-        .filter((stage, index) => index < 5),
-    [stages]
-  );
-
-  const stepCount = orderedStages.length > 0 ? orderedStages.length : 5;
-  const safeStep = Math.min(Math.max(1, Math.round(currentStep || 1)), stepCount);
+  const orderedStages = useMemo(() => [...stages].sort((left, right) => left.step - right.step), [stages]);
   const safeStages = orderedStages.length > 0 ? orderedStages : DEFAULT_PROGRESS_STAGES;
+  const stepCount = safeStages.length > 0 ? safeStages.length : DEFAULT_PROGRESS_STAGES.length;
+  const safeStep = Math.min(Math.max(1, Math.round(currentStep || 1)), stepCount);
 
   return (
     <div className="mt-5 overflow-x-auto pb-1">
       <div className="min-w-[640px]">
-        <div className="grid grid-cols-5 gap-2">
+        <div
+          className="grid gap-2"
+          style={{ gridTemplateColumns: `repeat(${safeStages.length}, minmax(120px, 1fr))` }}
+        >
           {safeStages.map((stage, index) => {
             const isPointActive = stage.step <= safeStep;
             const isLeftLineActive = stage.step <= safeStep;
@@ -194,6 +225,9 @@ function OrderDetailModal({
 }) {
   if (!order) return null;
 
+  const headlineLabel = resolveOrderHeadlineLabel(order);
+  const headlineAmount = resolveOrderHeadlineAmount(order);
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
       <div
@@ -224,15 +258,23 @@ function OrderDetailModal({
           <p>
             <span className="font-semibold text-slate-900">Status:</span> {order.statusLabel}
           </p>
+          {order.hasTradeIn ? (
+            <p>
+              <span className="font-semibold text-slate-900">Tipe:</span>{" "}
+              <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${tradeInBadgeClass}`}>
+                Trade-In
+              </span>
+            </p>
+          ) : null}
           <p>
             <span className="font-semibold text-slate-900">Pembayaran:</span> {order.paymentMethodLabel}
           </p>
           <p>
-            <span className="font-semibold text-slate-900">Total:</span> {formatCurrencyIDR(order.totalAmount)}
+            <span className="font-semibold text-slate-900">{headlineLabel}:</span> {formatCurrencyIDR(headlineAmount)}
           </p>
           {order.customerAddress ? (
             <p className="sm:col-span-2">
-              <span className="font-semibold text-slate-900">Alamat:</span> {order.customerAddress}
+              <span className="font-semibold text-slate-900">Alamat:</span> {formatDisplayAddress(order.customerAddress)}
             </p>
           ) : null}
         </div>
@@ -242,13 +284,32 @@ function OrderDetailModal({
             <div key={item.id} className="rounded-xl border border-slate-200 px-4 py-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="font-semibold text-slate-900">{item.productName}</p>
-                  <p className="text-xs text-slate-500">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-slate-900">{item.productName}</p>
+                    {isTradeInOrderItem(item) ? (
+                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${tradeInBadgeClass}`}>
+                        Trade-In
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className={`text-xs text-slate-500 ${isTradeInOrderItem(item) ? "hidden" : ""}`}>
                     {item.variantName ? `${item.variantName} • ` : ""}
                     {item.quantity} x {formatCurrencyIDR(item.unitPrice)}
                   </p>
+                  {isTradeInOrderItem(item) ? (
+                    <p className="text-xs text-slate-500">{item.variantName || "Item trade-in untuk review admin"}</p>
+                  ) : null}
+                  {isTradeInOrderItem(item) ? (
+                    <p className="mt-1 text-xs text-emerald-700">
+                      Estimasi trade-in: {formatCurrencyIDR(item.tradeInEstimatedAmount ?? 0)}
+                    </p>
+                  ) : null}
                 </div>
-                <p className="text-sm font-semibold text-slate-900">{formatCurrencyIDR(item.lineTotal)}</p>
+                <p className="text-sm font-semibold text-slate-900">
+                  {isTradeInOrderItem(item)
+                    ? formatCurrencyIDR(item.tradeInEstimatedAmount ?? 0)
+                    : formatCurrencyIDR(item.lineTotal)}
+                </p>
               </div>
             </div>
           ))}
@@ -272,8 +333,10 @@ export default function TransactionsPage() {
   const [openMenuOrderId, setOpenMenuOrderId] = useState<string | null>(null);
   const [detailOrder, setDetailOrder] = useState<CustomerOrder | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
+  const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
   const [resumeOrderId, setResumeOrderId] = useState<string | null>(null);
   const [confirmReceiveOrderId, setConfirmReceiveOrderId] = useState<string | null>(null);
+  const [tradeInFulfillmentOrderId, setTradeInFulfillmentOrderId] = useState<string | null>(null);
   const highlightedOrderKey = searchParams.get("highlight");
   const highlightedInvoice = searchParams.get("invoice");
   const highlightedPaymentStatus = searchParams.get("payment_status");
@@ -389,6 +452,11 @@ export default function TransactionsPage() {
 
     if (highlightedPaymentStatus === "finish" || highlightedPaymentEvent === "success") {
       setInfo(`Pembayaran untuk pesanan ${matched.orderNumber} berhasil dikirim. Status pesanan sedang disinkronkan.`);
+      return;
+    }
+
+    if (highlightedPaymentEvent === "trade_in_submitted") {
+      setInfo(`Pengajuan trade-in ${matched.orderNumber} berhasil masuk ke riwayat transaksi dan menunggu review admin.`);
       return;
     }
 
@@ -537,6 +605,66 @@ export default function TransactionsPage() {
         setError(toFriendlyError(confirmError));
       } finally {
         setConfirmReceiveOrderId(null);
+      }
+    },
+    [syncOrderState]
+  );
+
+  const handleCancelTradeIn = useCallback(
+    async (order: CustomerOrder) => {
+      if (typeof window !== "undefined") {
+        const confirmed = window.confirm(
+          `Batalkan pengajuan trade-in ${order.orderNumber}? Tindakan ini final dan tidak bisa di-undo.`
+        );
+
+        if (!confirmed) return;
+      }
+
+      try {
+        setCancelOrderId(order.id);
+        setError(null);
+        setInfo(null);
+        const nextOrder = await customerOrdersApi.cancelOrder(order.id);
+        syncOrderState(nextOrder);
+        setOpenMenuOrderId(null);
+        setInfo(`Pengajuan trade-in ${order.orderNumber} berhasil dibatalkan.`);
+      } catch (cancelError) {
+        setInfo(null);
+        setError(toFriendlyError(cancelError));
+      } finally {
+        setCancelOrderId(null);
+      }
+    },
+    [syncOrderState]
+  );
+
+  const handleSubmitTradeInFulfillment = useCallback(
+    async (
+      order: CustomerOrder,
+      payload: {
+        fulfillment_method: "pengiriman" | "offline_store";
+        shipment_tracking_number?: string | null;
+      }
+    ) => {
+      if (!order.id.trim()) return;
+
+      setTradeInFulfillmentOrderId(order.id);
+      setError(null);
+      setInfo(null);
+
+      try {
+        const nextOrder = await customerOrdersApi.submitTradeInFulfillment(order.id, payload);
+        syncOrderState(nextOrder);
+        setInfo(
+          payload.fulfillment_method === "pengiriman"
+            ? `Resi trade-in ${nextOrder.orderNumber} berhasil dikirim. Status masuk ke verifikasi fisik.`
+            : `Pilihan datang ke store untuk trade-in ${nextOrder.orderNumber} berhasil disimpan.`
+        );
+      } catch (submitError) {
+        setInfo(null);
+        setError(toFriendlyError(submitError));
+      } finally {
+        setTradeInFulfillmentOrderId(null);
       }
     },
     [syncOrderState]
@@ -694,17 +822,14 @@ export default function TransactionsPage() {
             const primaryItem = order.primaryItem ?? order.items[0] ?? null;
             const imageSource = resolveApiAssetUrl(primaryItem?.productImage) ?? "/product-placeholder.svg";
             const paymentDetails = resolveOrderPaymentDetails(order);
-            const canResumePayment = Boolean(order.canResumePayment || paymentDetails?.canResumePayment);
+            const headlineLabel = resolveOrderHeadlineLabel(order);
+            const headlineAmount = resolveOrderHeadlineAmount(order);
+            const canResumePayment = order.requiresPayment && Boolean(order.canResumePayment || paymentDetails?.canResumePayment);
             const canCancelOrder = canCustomerOrderBeCancelled(order);
             const canTrackShipment = canCustomerOrderTrackShipment(order);
             const canRequestReturn = canCustomerOrderRequestReturn(order);
             const canConfirmReceived = !paymentDetails?.isPending && order.canConfirmReceived;
-            const showInlineActions =
-              canResumePayment ||
-              canCancelOrder ||
-              canTrackShipment ||
-              canConfirmReceived ||
-              canRequestReturn;
+            const showInlineActions = canResumePayment || canConfirmReceived || canRequestReturn;
             const isHighlighted =
               highlightedOrderKey === order.id ||
               highlightedOrderKey === order.orderNumber ||
@@ -715,10 +840,23 @@ export default function TransactionsPage() {
             return (
               <article
                 key={order.id}
-                className={`rounded-2xl border bg-white p-5 shadow-sm ${
+                className={`relative rounded-2xl border bg-white p-5 shadow-sm ${
+                  order.hasTradeIn ? "pt-8" : ""
+                } ${
                   isHighlighted ? "border-blue-300 shadow-[0_18px_44px_rgba(59,130,246,0.16)]" : "border-slate-200"
                 }`}
               >
+                {order.hasTradeIn ? (
+                  <div className="pointer-events-none absolute left-5 -top-3 z-10">
+                    <div className="overflow-hidden rounded-b-[18px] shadow-[0_16px_28px_rgba(16,185,129,0.22)]">
+                      <div className="h-1 w-full bg-emerald-300" />
+                      <div className="bg-emerald-500 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-white">
+                        Trade-In
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <header className="grid gap-4 border-b border-slate-200 pb-4 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto]">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Tanggal Transaksi</p>
@@ -733,15 +871,17 @@ export default function TransactionsPage() {
                   </div>
 
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Total Harga</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900">{formatCurrencyIDR(order.totalAmount)}</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{headlineLabel}</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{formatCurrencyIDR(headlineAmount)}</p>
                   </div>
 
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Status</p>
-                    <span className={`mt-1 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusBadgeClass(order.statusGroup)}`}>
-                      {order.statusLabel}
-                    </span>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusBadgeClass(order.statusGroup)}`}>
+                        {order.statusLabel}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="relative justify-self-end" data-order-menu-root="true">
@@ -780,14 +920,24 @@ export default function TransactionsPage() {
                         {canCancelOrder ? (
                           <button
                             type="button"
+                            disabled={cancelOrderId === order.id}
                             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-rose-600 transition hover:bg-rose-50"
                             role="menuitem"
                             onClick={() => {
+                              if (order.kind === "trade_in") {
+                                void handleCancelTradeIn(order);
+                                return;
+                              }
+
                               setOpenMenuOrderId(null);
                               openOrderActionSupport(order, "cancel");
                             }}
                           >
-                            <Ban className="h-4 w-4" />
+                            {cancelOrderId === order.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Ban className="h-4 w-4" />
+                            )}
                             Batalkan Pesanan
                           </button>
                         ) : null}
@@ -852,12 +1002,19 @@ export default function TransactionsPage() {
                     </div>
 
                     <div className="min-w-0">
-                      <p className="truncate text-base font-semibold text-slate-900">
-                        {primaryItem?.productName ?? "Produk tidak tersedia"}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-base font-semibold text-slate-900">
+                          {primaryItem?.productName ?? "Produk tidak tersedia"}
+                        </p>
+                      </div>
                       <p className="mt-0.5 text-sm text-emerald-700">
                         Pembayaran: {paymentDetails?.methodLabel ?? order.paymentMethodLabel}
                       </p>
+                      {primaryItem && isTradeInOrderItem(primaryItem) ? (
+                        <p className="mt-0.5 text-xs text-emerald-700">
+                          Estimasi trade-in: {formatCurrencyIDR(primaryItem.tradeInEstimatedAmount ?? 0)}
+                        </p>
+                      ) : null}
                       {paymentDetails?.isPending && paymentDetails.expiryTime ? (
                         <p className="mt-0.5 text-xs text-amber-700">
                           Bayar sebelum {formatDateTimeID(paymentDetails.expiryTime)}
@@ -882,34 +1039,6 @@ export default function TransactionsPage() {
                         >
                           {resumeOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                           Bayar Sekarang
-                        </Button>
-                      ) : null}
-
-                      {canCancelOrder ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            openOrderActionSupport(order, "cancel");
-                          }}
-                          className="h-10 rounded-xl border-rose-200 px-4 text-sm font-semibold text-rose-600 hover:bg-rose-50"
-                        >
-                          <Ban className="h-4 w-4" />
-                          Batalkan
-                        </Button>
-                      ) : null}
-
-                      {canTrackShipment ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            handleTrackPackage(order);
-                          }}
-                          className="h-10 rounded-xl border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                          <PackageSearch className="h-4 w-4" />
-                          Lacak Pesanan
                         </Button>
                       ) : null}
 
@@ -941,17 +1070,23 @@ export default function TransactionsPage() {
                         </Button>
                       ) : null}
 
-                      <Link
-                        href={`/transaksi/${order.id}`}
-                        className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                      >
-                        Lihat Detail
-                      </Link>
                     </div>
                   ) : null}
                 </div>
 
-                <OrderProgress stages={progressStages} currentStep={order.statusStep} />
+                {order.statusGroup !== "cancelled" ? (
+                  <OrderProgress
+                    stages={order.progressStages.length > 0 ? order.progressStages : progressStages}
+                    currentStep={order.statusStep}
+                  />
+                ) : null}
+
+                <TradeInFulfillmentNotice
+                  key={`${order.id}:${order.tradeInFulfillmentMethod ?? ""}:${order.tradeInShipmentTrackingNumber ?? ""}:${order.tradeInStatus ?? ""}`}
+                  order={order}
+                  submitting={tradeInFulfillmentOrderId === order.id}
+                  onSubmit={(payload) => handleSubmitTradeInFulfillment(order, payload)}
+                />
               </article>
             );
           })}

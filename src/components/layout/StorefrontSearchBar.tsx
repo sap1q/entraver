@@ -13,6 +13,7 @@ import type { Product } from "@/types/product.types";
 
 interface StorefrontSearchBarProps {
   compact?: boolean;
+  variant?: "default" | "overlay";
 }
 
 const SEARCH_HISTORY_KEY = "entraverse:storefront-search-history";
@@ -55,7 +56,10 @@ const writeHistory = (value: string): string[] => {
   return nextHistory;
 };
 
-export function StorefrontSearchBar({ compact = false }: StorefrontSearchBarProps) {
+export function StorefrontSearchBar({
+  compact = false,
+  variant = "default",
+}: StorefrontSearchBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -156,20 +160,27 @@ export function StorefrontSearchBar({ compact = false }: StorefrontSearchBarProp
     () => history.filter((item) => item.toLowerCase() !== trimmedQuery.toLowerCase()),
     [history, trimmedQuery]
   );
+  const isOverlay = variant === "overlay";
 
   return (
     <div ref={wrapperRef} className="relative min-w-0 flex-1">
       <form
         onSubmit={handleSubmit}
         className={cn(
-          "flex items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3 text-slate-600 transition-colors focus-within:border-blue-300",
+          "flex items-center gap-2 rounded-full px-3 transition-[background-color,border-color,color,box-shadow] duration-300",
+          isOverlay
+            ? "border border-white/15 bg-white/[0.08] text-white shadow-[0_18px_45px_rgba(15,23,42,0.14)] backdrop-blur-xl focus-within:border-white/35 focus-within:bg-white/[0.14]"
+            : "border border-slate-200/80 bg-white text-slate-600 focus-within:border-blue-300",
           compact ? "h-10" : "h-11"
         )}
         role="search"
       >
-        <AddressShortcut mode="pill" compact={compact} />
-        <span className={cn("w-px bg-slate-200", compact ? "h-4" : "h-5")} aria-hidden />
-        <Search className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.6} />
+        <AddressShortcut mode="pill" compact={compact} variant={variant} />
+        <span className={cn("w-px", isOverlay ? "bg-white/15" : "bg-slate-200", compact ? "h-4" : "h-5")} aria-hidden />
+        <Search
+          className={cn("h-4 w-4 shrink-0 transition-colors duration-300", isOverlay ? "text-white/80" : "text-slate-500")}
+          strokeWidth={1.6}
+        />
         <input
           value={query}
           onChange={(event) => {
@@ -185,10 +196,15 @@ export function StorefrontSearchBar({ compact = false }: StorefrontSearchBarProp
             setOpen(true);
           }}
           aria-label="Cari produk"
-          className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+          className={cn(
+            "w-full bg-transparent text-sm outline-none transition-colors duration-300",
+            isOverlay ? "text-white placeholder:text-white/65" : "text-slate-700 placeholder:text-slate-400"
+          )}
           placeholder="Cari produk di Entraverse"
         />
-        {loading ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}
+        {loading ? (
+          <Loader2 className={cn("h-4 w-4 animate-spin", isOverlay ? "text-white" : "text-blue-600")} />
+        ) : null}
         <button type="submit" className="sr-only">
           Cari
         </button>

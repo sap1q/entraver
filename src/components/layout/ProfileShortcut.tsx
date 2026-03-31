@@ -80,7 +80,11 @@ const subscribeProfileShortcut = (callback: () => void) => {
   };
 };
 
-export function ProfileShortcut() {
+type ProfileShortcutProps = {
+  variant?: "default" | "overlay";
+};
+
+export function ProfileShortcut({ variant = "default" }: ProfileShortcutProps) {
   const router = useRouter();
   const profileSnapshot = useSyncExternalStore(
     subscribeProfileShortcut,
@@ -159,6 +163,7 @@ export function ProfileShortcut() {
 
   return (
     <ProfileDropdown
+      variant={variant}
       isLoggedIn={profileSnapshot.isLoggedIn}
       user={{
         name: displayName,

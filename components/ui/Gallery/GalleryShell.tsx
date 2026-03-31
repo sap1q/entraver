@@ -7,7 +7,7 @@ interface GalleryShellProps extends HTMLAttributes<HTMLDivElement> {
 
 export const GalleryShell = ({ children, className, ...props }: GalleryShellProps) => {
   return (
-    <div className={cn("grid grid-cols-1 gap-3", className)} {...props}>
+    <div className={cn("grid grid-cols-1 gap-3 self-start", className)} {...props}>
       {children}
     </div>
   );

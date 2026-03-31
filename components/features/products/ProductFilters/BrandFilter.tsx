@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useProductFilters } from "@/hooks/useProductFilters";
+import { useProductsContext } from "@/hooks/useProducts";
 import { productsApi } from "@/lib/api/products";
 import type { Brand } from "@/types/product.types";
 
@@ -12,6 +13,15 @@ export const BrandFilter = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toggleFilter, isFilterActive } = useProductFilters();
+  const { products } = useProductsContext();
+
+  const brandCounts = useMemo(() => {
+    return products.reduce<Map<string, number>>((result, product) => {
+      const slug = product.brand.slug;
+      result.set(slug, (result.get(slug) ?? 0) + 1);
+      return result;
+    }, new Map<string, number>());
+  }, [products]);
 
   useEffect(() => {
     let isActive = true;
@@ -82,7 +92,9 @@ export const BrandFilter = () => {
                   <span className="flex-1 text-sm text-slate-600 group-hover:text-slate-900">
                     {brand.name}
                   </span>
-                  <span className="text-xs text-slate-400">({brand.product_count})</span>
+                  <span className="text-xs text-slate-400">
+                    ({brandCounts.get(brand.slug) ?? brand.product_count})
+                  </span>
                 </label>
               ))
             : null}

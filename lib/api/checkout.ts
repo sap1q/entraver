@@ -37,13 +37,16 @@ export type CheckoutProcessItemPayload = {
   quantity: number;
   variant_sku?: string;
   variants?: Record<string, string>;
+  trade_in_enabled?: boolean;
+  trade_in_transaction_id?: string;
 };
 
 export type CheckoutProcessPayload = {
-  address_id: string;
-  courier: string;
-  service: string;
+  address_id?: string;
+  courier?: string;
+  service?: string;
   notes?: string;
+  trade_in_discount?: number;
   items: CheckoutProcessItemPayload[];
 };
 
@@ -64,6 +67,7 @@ export type CheckoutOrder = {
   status: string;
   paymentStatus: string;
   subtotal: number;
+  discountAmount: number;
   shippingCost: number;
   totalAmount: number;
   shippingCourier: string | null;
@@ -73,8 +77,22 @@ export type CheckoutOrder = {
   items: CheckoutOrderItem[];
 };
 
+export type CheckoutTradeInTransactionSummary = {
+  id: string;
+  transactionNumber: string;
+  status: string;
+  tradeInOnly: boolean;
+  estimatedAmount: number;
+  requestedProductName: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
 export type CheckoutProcessResult = {
+  entryKind: "sales_order" | "trade_in";
+  requiresPayment: boolean;
   order: CheckoutOrder;
+  tradeInTransactions: CheckoutTradeInTransactionSummary[];
   snapToken: string;
   snapRedirectUrl: string | null;
   midtransClientKey: string;
@@ -148,15 +166,16 @@ const extractErrorMessage = (error: unknown): string => {
   if (!isAxiosError(error)) return "Terjadi kesalahan saat memproses checkout.";
 
   const payload = toObject(error.response?.data);
+  const errors = toObject(payload.errors);
+  for (const value of Object.values(errors)) {
+    if (Array.isArray(value) && value.length > 0) {
+      const message = toStringValue(value[0]);
+      if (message) return message;
+    }
+  }
+
   const directMessage = toStringValue(payload.message);
   if (directMessage) return directMessage;
-
-  const errors = toObject(payload.errors);
-  const firstError = Object.values(errors)[0];
-  if (Array.isArray(firstError) && firstError.length > 0) {
-    const message = toStringValue(firstError[0]);
-    if (message) return message;
-  }
 
   return "Terjadi kesalahan saat memproses checkout.";
 };
@@ -185,6 +204,7 @@ const mapCheckoutOrder = (raw: unknown): CheckoutOrder => {
     status: toStringValue(row.status) ?? "",
     paymentStatus: toStringValue(row.payment_status) ?? "pending",
     subtotal: toNumberValue(row.subtotal),
+    discountAmount: toNumberValue(row.discount_amount),
     shippingCost: toNumberValue(row.shipping_cost),
     totalAmount: toNumberValue(row.total_amount),
     shippingCourier: toStringValue(row.shipping_courier),
@@ -205,6 +225,28 @@ const mapCheckoutOrder = (raw: unknown): CheckoutOrder => {
         lineTotal: toNumberValue(itemRow.line_total),
       } satisfies CheckoutOrderItem;
     }),
+  };
+};
+
+const mapTradeInTransactionSummary = (raw: unknown): CheckoutTradeInTransactionSummary | null => {
+  const row = toObject(raw);
+  const id = toStringValue(row.id);
+  const transactionNumber = toStringValue(row.transaction_number);
+  const status = toStringValue(row.status);
+
+  if (!id || !transactionNumber || !status) {
+    return null;
+  }
+
+  return {
+    id,
+    transactionNumber,
+    status,
+    tradeInOnly: Boolean(row.trade_in_only),
+    estimatedAmount: toNumberValue(row.estimated_amount),
+    requestedProductName: toStringValue(row.requested_product_name),
+    createdAt: toStringValue(row.created_at),
+    updatedAt: toStringValue(row.updated_at),
   };
 };
 
@@ -238,8 +280,12 @@ export const checkoutApi = {
       const response = await api.post("/checkout/process", payload);
       const source = toObject(response.data);
       const data = toObject(source.data);
+      const tradeInTransactions = (Array.isArray(data.trade_in_transactions) ? data.trade_in_transactions : [])
+        .map(mapTradeInTransactionSummary)
+        .filter((item): item is CheckoutTradeInTransactionSummary => item !== null);
+      const primaryTradeIn = tradeInTransactions[0] ?? null;
       const shipping = mapShippingOption(data.shipping) ?? {
-        service: payload.service,
+        service: payload.service ?? "",
         description: null,
         cost: 0,
         etd: null,
@@ -247,7 +293,22 @@ export const checkoutApi = {
       };
 
       return {
-        order: mapCheckoutOrder(data.order),
+        entryKind: (toStringValue(data.entry_kind) ?? "sales_order") as "sales_order" | "trade_in",
+        requiresPayment: Boolean(data.requires_payment ?? true),
+        order: mapCheckoutOrder(
+          data.order ?? {
+            id: primaryTradeIn?.id ?? "",
+            order_number: primaryTradeIn?.transactionNumber ?? "",
+            status: primaryTradeIn?.status ?? "",
+            payment_status: "not_required",
+            subtotal: 0,
+            discount_amount: 0,
+            shipping_cost: 0,
+            total_amount: 0,
+            items: [],
+          }
+        ),
+        tradeInTransactions,
         snapToken: toStringValue(data.snap_token) ?? "",
         snapRedirectUrl: toStringValue(data.snap_redirect_url),
         midtransClientKey: toStringValue(data.midtrans_client_key) ?? "",

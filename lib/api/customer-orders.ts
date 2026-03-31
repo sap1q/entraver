@@ -1,4 +1,5 @@
 import api, { ensureCsrfCookie, isAxiosError } from "@/lib/axios";
+import { resolveApiAssetUrl } from "@/lib/utils/media";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -25,6 +26,9 @@ export type CustomerOrderItem = {
   unitPrice: number;
   lineTotal: number;
   productImage: string | null;
+  tradeInEnabled: boolean;
+  tradeInTransactionId: string | null;
+  tradeInEstimatedAmount: number | null;
 };
 
 export type CustomerOrderPrimaryItem = {
@@ -37,6 +41,9 @@ export type CustomerOrderPrimaryItem = {
   unitPrice: number;
   lineTotal: number;
   productImage: string | null;
+  tradeInEnabled: boolean;
+  tradeInTransactionId: string | null;
+  tradeInEstimatedAmount: number | null;
 };
 
 export type CustomerOrderPaymentDetails = {
@@ -59,8 +66,17 @@ export type CustomerOrderPaymentDetails = {
   instructions: string[];
 };
 
+export type CustomerOrderTradeInStoreOrigin = {
+  label: string | null;
+  recipientName: string | null;
+  recipientPhone: string | null;
+  fullAddress: string | null;
+  locationNote: string | null;
+};
+
 export type CustomerOrder = {
   id: string;
+  kind: "sales_order" | "trade_in";
   orderNumber: string;
   invoiceNumber: string | null;
   status: string;
@@ -68,6 +84,8 @@ export type CustomerOrder = {
   statusStep: number;
   statusLabel: string;
   statusGroup: string;
+  progressStages: CustomerOrderProgressStage[];
+  requiresPayment: boolean;
   paymentStatus: string;
   paymentMethod: string | null;
   paymentMethodLabel: string;
@@ -87,6 +105,12 @@ export type CustomerOrder = {
   customerAddress: string | null;
   canResumePayment: boolean;
   canConfirmReceived: boolean;
+  hasTradeIn: boolean;
+  tradeInTransactionNumber: string | null;
+  tradeInStatus: string | null;
+  tradeInFulfillmentMethod: string | null;
+  tradeInShipmentTrackingNumber: string | null;
+  tradeInStoreOrigin: CustomerOrderTradeInStoreOrigin | null;
   paymentDetails: CustomerOrderPaymentDetails | null;
   primaryItem: CustomerOrderPrimaryItem | null;
   items: CustomerOrderItem[];
@@ -129,6 +153,7 @@ export type CustomerOrderPaymentResult = {
 const SUCCESS_ORDER_STAGE_CODES = new Set(["completed"]);
 const TRACKABLE_ORDER_STAGE_CODES = new Set(["order_shipped", "order_delivered"]);
 const CANCELLABLE_ORDER_STAGE_CODES = new Set(["waiting_payment", "waiting_confirmation"]);
+const CANCELLABLE_TRADE_IN_STAGE_CODES = new Set(["trade_in_review", "trade_in_accepted"]);
 
 const DEFAULT_PROGRESS_STAGES: CustomerOrderProgressStage[] = [
   { step: 1, code: "waiting_payment", label: "Menunggu Pembayaran" },
@@ -191,7 +216,6 @@ const toBooleanValue = (value: unknown): boolean | null => {
 const clampStep = (value: number): number => {
   const rounded = Math.round(value);
   if (!Number.isFinite(rounded) || rounded < 1) return 1;
-  if (rounded > 5) return 5;
   return rounded;
 };
 
@@ -312,6 +336,8 @@ const extractErrorMessage = (error: unknown, fallback: string): string => {
 
 const mapOrderItem = (raw: unknown): CustomerOrderItem => {
   const row = toObject(raw);
+  const tradeInEnabled =
+    (toBooleanValue(row.trade_in_enabled) ?? false) || toStringValue(row.trade_in_transaction_id) !== null;
 
   return {
     id: toStringValue(row.id) ?? "",
@@ -322,7 +348,10 @@ const mapOrderItem = (raw: unknown): CustomerOrderItem => {
     quantity: Math.max(1, Math.round(toNumberValue(row.quantity) || 1)),
     unitPrice: toNumberValue(row.unit_price),
     lineTotal: toNumberValue(row.line_total),
-    productImage: toStringValue(row.product_image),
+    productImage: resolveApiAssetUrl(toStringValue(row.product_image)),
+    tradeInEnabled,
+    tradeInTransactionId: toStringValue(row.trade_in_transaction_id),
+    tradeInEstimatedAmount: tradeInEnabled ? toNumberValue(row.trade_in_estimated_amount) : null,
   };
 };
 
@@ -330,6 +359,8 @@ const mapPrimaryItem = (raw: unknown): CustomerOrderPrimaryItem | null => {
   const row = toObject(raw);
   const id = toStringValue(row.id);
   if (!id) return null;
+  const tradeInEnabled =
+    (toBooleanValue(row.trade_in_enabled) ?? false) || toStringValue(row.trade_in_transaction_id) !== null;
 
   return {
     id,
@@ -340,7 +371,10 @@ const mapPrimaryItem = (raw: unknown): CustomerOrderPrimaryItem | null => {
     quantity: Math.max(1, Math.round(toNumberValue(row.quantity) || 1)),
     unitPrice: toNumberValue(row.unit_price),
     lineTotal: toNumberValue(row.line_total),
-    productImage: toStringValue(row.product_image),
+    productImage: resolveApiAssetUrl(toStringValue(row.product_image)),
+    tradeInEnabled,
+    tradeInTransactionId: toStringValue(row.trade_in_transaction_id),
+    tradeInEstimatedAmount: tradeInEnabled ? toNumberValue(row.trade_in_estimated_amount) : null,
   };
 };
 
@@ -380,18 +414,47 @@ const mapPaymentDetails = (raw: unknown): CustomerOrderPaymentDetails | null => 
   };
 };
 
+const mapTradeInStoreOrigin = (raw: unknown): CustomerOrderTradeInStoreOrigin | null => {
+  const row = toObject(raw);
+
+  const label = toStringValue(row.label);
+  const recipientName = toStringValue(row.recipient_name);
+  const recipientPhone = toStringValue(row.recipient_phone);
+  const fullAddress = toStringValue(row.full_address);
+  const locationNote = toStringValue(row.location_note);
+
+  if (!label && !recipientName && !recipientPhone && !fullAddress) {
+    return null;
+  }
+
+  return {
+    label,
+    recipientName,
+    recipientPhone,
+    fullAddress,
+    locationNote,
+  };
+};
+
 const mapOrder = (raw: unknown): CustomerOrder => {
   const row = toObject(raw);
   const items = Array.isArray(row.items) ? row.items : [];
+  const mappedItems = items.map(mapOrderItem);
   const status = toStringValue(row.status) ?? "";
   const paymentStatus = toStringValue(row.payment_status) ?? "pending";
   const statusFallback = resolveStatusFallback(status, paymentStatus);
   const statusStep = clampStep(toNumberValue(row.status_step) || statusFallback.statusStep);
   const canTrackPackage = toBooleanValue(row.can_track_package) ?? statusStep >= 3;
   const paymentMethod = toStringValue(row.payment_method);
+  const primaryItem = mapPrimaryItem(row.primary_item);
+  const hasTradeIn =
+    (toBooleanValue(row.has_trade_in) ?? false) ||
+    mappedItems.some((item) => item.tradeInEnabled) ||
+    Boolean(primaryItem?.tradeInEnabled);
 
   return {
     id: toStringValue(row.id) ?? "",
+    kind: (toStringValue(row.kind) ?? "sales_order") as "sales_order" | "trade_in",
     orderNumber: toStringValue(row.order_number) ?? "",
     invoiceNumber: toStringValue(row.invoice_number),
     status,
@@ -399,6 +462,11 @@ const mapOrder = (raw: unknown): CustomerOrder => {
     statusStep,
     statusLabel: toStringValue(row.status_label) ?? statusFallback.statusLabel,
     statusGroup: toStringValue(row.status_group) ?? statusFallback.statusGroup,
+    progressStages:
+      (Array.isArray(row.progress_stages) ? row.progress_stages : [])
+        .map(mapProgressStage)
+        .filter((item): item is CustomerOrderProgressStage => item !== null),
+    requiresPayment: toBooleanValue(row.requires_payment) ?? true,
     paymentStatus,
     paymentMethod,
     paymentMethodLabel: toStringValue(row.payment_method_label) ?? resolvePaymentMethodLabelFallback(paymentMethod),
@@ -418,9 +486,15 @@ const mapOrder = (raw: unknown): CustomerOrder => {
     customerAddress: toStringValue(row.customer_address),
     canResumePayment: toBooleanValue(row.can_resume_payment) ?? false,
     canConfirmReceived: toBooleanValue(row.can_confirm_received) ?? false,
+    hasTradeIn,
+    tradeInTransactionNumber: toStringValue(row.trade_in_transaction_number),
+    tradeInStatus: toStringValue(row.trade_in_status),
+    tradeInFulfillmentMethod: toStringValue(row.trade_in_fulfillment_method),
+    tradeInShipmentTrackingNumber: toStringValue(row.trade_in_shipment_tracking_number),
+    tradeInStoreOrigin: mapTradeInStoreOrigin(row.trade_in_store_origin),
     paymentDetails: mapPaymentDetails(row.payment_details),
-    primaryItem: mapPrimaryItem(row.primary_item),
-    items: items.map(mapOrderItem),
+    primaryItem,
+    items: mappedItems,
     createdAt: toStringValue(row.created_at),
     updatedAt: toStringValue(row.updated_at),
   };
@@ -462,6 +536,10 @@ export const canCustomerOrderBeCancelled = (order: CustomerOrder): boolean => {
   const stageCode = normalizeStageCode(order);
   const status = normalizeStatus(order);
   const paymentStatus = normalizePaymentStatus(order);
+
+  if (order.kind === "trade_in") {
+    return CANCELLABLE_TRADE_IN_STAGE_CODES.has(stageCode);
+  }
 
   if (SUCCESS_ORDER_STAGE_CODES.has(stageCode) || TRACKABLE_ORDER_STAGE_CODES.has(stageCode)) {
     return false;
@@ -563,7 +641,7 @@ export const customerOrdersApi = {
 
   async confirmReceived(orderId: string): Promise<CustomerOrder> {
     try {
-      await ensureCsrfCookie(true);
+      await ensureCsrfCookie();
       const response = await api.post(`/orders/${orderId}/received`, {});
       const source = toObject(response.data);
       return mapOrder(source.data);
@@ -580,6 +658,56 @@ export const customerOrdersApi = {
       }
 
       throw new Error(extractErrorMessage(error, "Gagal mengonfirmasi pesanan diterima."));
+    }
+  },
+
+  async cancelOrder(orderId: string): Promise<CustomerOrder> {
+    try {
+      await ensureCsrfCookie();
+      const response = await api.post(`/orders/${orderId}/cancel`, {});
+      const source = toObject(response.data);
+      return mapOrder(source.data);
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 419) {
+        try {
+          await ensureCsrfCookie(true);
+          const response = await api.post(`/orders/${orderId}/cancel`, {});
+          const source = toObject(response.data);
+          return mapOrder(source.data);
+        } catch (retryError) {
+          throw new Error(extractErrorMessage(retryError, "Gagal membatalkan transaksi trade-in."));
+        }
+      }
+
+      throw new Error(extractErrorMessage(error, "Gagal membatalkan transaksi trade-in."));
+    }
+  },
+
+  async submitTradeInFulfillment(
+    orderId: string,
+    payload: {
+      fulfillment_method: "pengiriman" | "offline_store";
+      shipment_tracking_number?: string | null;
+    }
+  ): Promise<CustomerOrder> {
+    try {
+      await ensureCsrfCookie();
+      const response = await api.post(`/orders/${orderId}/trade-in-fulfillment`, payload);
+      const source = toObject(response.data);
+      return mapOrder(source.data);
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 419) {
+        try {
+          await ensureCsrfCookie(true);
+          const response = await api.post(`/orders/${orderId}/trade-in-fulfillment`, payload);
+          const source = toObject(response.data);
+          return mapOrder(source.data);
+        } catch (retryError) {
+          throw new Error(extractErrorMessage(retryError, "Gagal menyimpan data pengiriman trade-in."));
+        }
+      }
+
+      throw new Error(extractErrorMessage(error, "Gagal menyimpan data pengiriman trade-in."));
     }
   },
 };

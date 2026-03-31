@@ -20,6 +20,10 @@ const formatVariants = (variants: Record<string, string>): string => {
   return entries.map(([name, value]) => `${name}: ${value}`).join(", ");
 };
 
+const formatDiscountCurrencyIDR = (value: number): string => {
+  return formatCurrencyIDR(value).replace("Rp ", "Rp -");
+};
+
 export function CartItem({
   item,
   pending = false,
@@ -27,9 +31,11 @@ export function CartItem({
   onChangeQuantity,
   onRemove,
 }: CartItemProps) {
+  const hasTradeInFlow = item.tradeInEnabled || Boolean(item.tradeInTransactionId);
+  const hasTradeInDiscount = hasTradeInFlow && item.tradeInValue > 0;
   const canDecrement = item.quantity > item.minOrder;
   const canIncrement = item.quantity < item.stock;
-  const lineTotal = item.price * item.quantity;
+  const displayLineTotal = (item.displayPrice ?? item.price) * item.quantity;
   const hasStockLimit = Number.isFinite(item.stock) && item.stock < Number.MAX_SAFE_INTEGER;
 
   return (
@@ -60,9 +66,18 @@ export function CartItem({
             </div>
 
             <div className="min-w-0 flex-1">
-              <h3 className="line-clamp-2 text-sm font-semibold text-slate-900 sm:text-base">{item.name}</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="line-clamp-2 text-sm font-semibold text-slate-900 sm:text-base">{item.name}</h3>
+                {hasTradeInFlow ? (
+                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                    Trade-In
+                  </span>
+                ) : null}
+              </div>
               <p className="mt-1 text-xs text-slate-500 sm:text-sm">{formatVariants(item.variants)}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">{formatCurrencyIDR(item.price)} / item</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">
+                {formatCurrencyIDR(item.displayPrice ?? item.price)} / item
+              </p>
 
               {hasStockLimit ? (
                 <p className="mt-1 text-xs text-slate-500">
@@ -71,14 +86,16 @@ export function CartItem({
                 </p>
               ) : null}
 
-              {item.tradeInEnabled && item.tradeInValue > 0 ? (
-                <p className="mt-1 text-xs font-semibold text-orange-600">
-                  Potongan Trade-In: -{formatCurrencyIDR(item.tradeInValue)}
+              {hasTradeInDiscount ? (
+                <p className="mt-1 text-xs font-semibold text-emerald-600">
+                  Potongan Trade-In: {formatDiscountCurrencyIDR(item.tradeInValue)}
                 </p>
               ) : null}
             </div>
 
-            <p className="hidden text-base font-semibold text-slate-900 sm:block">{formatCurrencyIDR(lineTotal)}</p>
+            <div className="hidden text-right sm:block">
+              <p className="text-base font-semibold text-slate-900">{formatCurrencyIDR(displayLineTotal)}</p>
+            </div>
           </div>
 
           <div className="mt-3 flex items-center justify-between gap-3">
@@ -107,7 +124,9 @@ export function CartItem({
             </div>
 
             <div className="flex items-center gap-3">
-              <p className="text-sm font-semibold text-slate-900 sm:hidden">{formatCurrencyIDR(lineTotal)}</p>
+              <div className="text-right sm:hidden">
+                <p className="text-sm font-semibold text-slate-900">{formatCurrencyIDR(displayLineTotal)}</p>
+              </div>
               <button
                 type="button"
                 onClick={() => onRemove(item.id)}

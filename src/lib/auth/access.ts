@@ -14,6 +14,7 @@ const CUSTOMER_API_PATTERNS = [
   /^\/shipping\/cost(?:\/|$)/,
   /^\/checkout\/process(?:\/|$)/,
   /^\/orders(?:\/|$)/,
+  /^\/trade-in\/transactions(?:\/|$)/,
 ] as const;
 
 export const normalizeRequestPath = (url: string): string => {

@@ -24,6 +24,12 @@ const dashboardShortcuts = [
     description: "Pantau pesanan, fulfillment, dan status transaksi.",
     icon: ClipboardList,
   },
+  {
+    title: "Trade-In",
+    href: "/admin/trade-in",
+    description: "Lihat pengajuan trade-in customer beserta foto perangkat.",
+    icon: RefreshCcw,
+  },
 ];
 
 const formatSyncValue = (value: string | null): string => {

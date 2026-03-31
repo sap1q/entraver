@@ -71,6 +71,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const [salesOpen, setSalesOpen] = useState(
     pathname.startsWith("/admin/sales") ||
       pathname.startsWith("/admin/pemesanan") ||
+      pathname.startsWith("/admin/trade-in") ||
       pathname.startsWith("/admin/penawaran") ||
       pathname.startsWith("/admin/penagihan")
   );
@@ -91,6 +92,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     () =>
       pathname.startsWith("/admin/sales") ||
       pathname.startsWith("/admin/pemesanan") ||
+      pathname.startsWith("/admin/trade-in") ||
       pathname.startsWith("/admin/penawaran") ||
       pathname.startsWith("/admin/penagihan"),
     [pathname]
@@ -318,6 +320,17 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                     ) : null}
                     <ClipboardList className="h-4 w-4" />
                     <span>Pemesanan</span>
+                  </Link>
+                  <Link
+                    href="/admin/trade-in"
+                    onClick={closeMobileSidebar}
+                    className={menuItemClass(pathname.startsWith("/admin/trade-in"))}
+                  >
+                    {pathname.startsWith("/admin/trade-in") ? (
+                      <span className="absolute left-0 top-[calc(50%-12px)] h-6 w-1 rounded-r bg-[#2563EB]" />
+                    ) : null}
+                    <ShoppingBag className="h-4 w-4" />
+                    <span>Trade-In</span>
                   </Link>
                   <Link
                     href="/admin/penawaran"

@@ -36,6 +36,30 @@ import {
   resolveVariantRowPrice,
 } from "../products/[slug]/components/productPricing";
 
+const formatDiscountCurrencyIDR = (value: number): string => {
+  return formatCurrencyIDR(value).replace("Rp ", "Rp -");
+};
+
+const hasTradeInFlow = (item: { tradeInEnabled: boolean; tradeInTransactionId?: string | null }): boolean =>
+  item.tradeInEnabled || Boolean(item.tradeInTransactionId);
+
+const getDiscountPercent = (baseValue: number, discountValue: number): number => {
+  if (baseValue <= 0 || discountValue <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((discountValue / baseValue) * 100)));
+};
+
+const formatEstimatedDelivery = (etd: string | null | undefined): string => {
+  const normalized = etd?.trim();
+  if (!normalized) return "-";
+
+  const localized = normalized.replace(/\b(days?|hari)\b/gi, "").trim();
+  if (localized.length > 0) {
+    return `${localized} hari`;
+  }
+
+  return "hari";
+};
+
 const COURIER_OPTIONS = [
   { label: "JNE", value: "jne" },
   { label: "J&T Express", value: "jnt" },
@@ -201,11 +225,13 @@ export default function CheckoutPage() {
             item.variantSku ?? null
           )
         : null;
+      const itemHasTradeInFlow = hasTradeInFlow(item);
       const unitPrice =
         (selectedVariantRow ? resolveVariantRowPrice(selectedVariantRow) : null) ??
         snapshot?.price ??
         item.price;
       const lineTotal = unitPrice * item.quantity;
+      const tradeInValue = item.tradeInValue;
 
       return {
         id: item.id,
@@ -217,6 +243,10 @@ export default function CheckoutPage() {
         variants: item.variants,
         unitPrice,
         lineTotal,
+        tradeInEnabled: itemHasTradeInFlow,
+        tradeInTransactionId: item.tradeInTransactionId,
+        tradeInValue,
+        kind: itemHasTradeInFlow ? "trade_in" : "purchase",
       };
     });
   }, [productSnapshots, selectedCartItems]);
@@ -228,13 +258,48 @@ export default function CheckoutPage() {
         quantity: item.quantity,
         variant_sku: item.variantSku,
         variants: item.variants,
+        trade_in_enabled: hasTradeInFlow(item),
+        trade_in_transaction_id: item.tradeInTransactionId,
       })),
     [selectedCartItems]
   );
 
   const subtotal = useMemo(
-    () => checkoutItems.reduce((total, item) => total + item.lineTotal, 0),
+    () => checkoutItems.filter((item) => item.kind === "purchase").reduce((total, item) => total + item.lineTotal, 0),
     [checkoutItems]
+  );
+  const tradeInDiscount = useMemo(
+    () =>
+      selectedCartItems
+        .filter((item) => hasTradeInFlow(item))
+        .reduce((total, item) => total + item.tradeInValue, 0),
+    [selectedCartItems]
+  );
+  const appliedTradeInDiscount = useMemo(() => Math.min(subtotal, tradeInDiscount), [subtotal, tradeInDiscount]);
+  const tradeInDiscountPercent = useMemo(
+    () => getDiscountPercent(subtotal, appliedTradeInDiscount),
+    [appliedTradeInDiscount, subtotal]
+  );
+  const containsTradeInItem = useMemo(
+    () => selectedCartItems.some((item) => hasTradeInFlow(item)),
+    [selectedCartItems]
+  );
+  const containsPurchaseItem = useMemo(
+    () => selectedCartItems.some((item) => !hasTradeInFlow(item)),
+    [selectedCartItems]
+  );
+  const isTradeInOnlyCheckout = containsTradeInItem && !containsPurchaseItem;
+  const purchaseCheckoutItems = useMemo(
+    () => checkoutItems.filter((item) => item.kind === "purchase"),
+    [checkoutItems]
+  );
+  const tradeInCheckoutItems = useMemo(
+    () => checkoutItems.filter((item) => item.kind === "trade_in"),
+    [checkoutItems]
+  );
+  const shippingRequestItems = useMemo<CheckoutProcessItemPayload[]>(
+    () => checkoutRequestItems.filter((item) => !item.trade_in_enabled && !item.trade_in_transaction_id),
+    [checkoutRequestItems]
   );
 
   const selectedShipping = useMemo(
@@ -242,8 +307,8 @@ export default function CheckoutPage() {
     [selectedService, shippingOptions]
   );
 
-  const shippingCost = selectedShipping?.cost ?? 0;
-  const totalAmount = subtotal + shippingCost;
+  const shippingCost = containsPurchaseItem ? selectedShipping?.cost ?? 0 : 0;
+  const totalAmount = Math.max(0, subtotal - appliedTradeInDiscount + shippingCost);
 
   const persistPendingPayment = useCallback((payment: PendingPaymentSession): PendingPaymentSession => {
     const nextPayment = {
@@ -281,7 +346,7 @@ export default function CheckoutPage() {
 
     const addressId = String(selectedAddress?.id ?? "").trim();
 
-    if (!addressId || checkoutRequestItems.length === 0) {
+    if (!containsPurchaseItem || !addressId || shippingRequestItems.length === 0) {
       setShippingOptions([]);
       setSelectedService("");
       setShippingError(null);
@@ -300,7 +365,7 @@ export default function CheckoutPage() {
       .getShippingCost({
         address_id: addressId,
         courier,
-        items: checkoutRequestItems,
+        items: shippingRequestItems,
       })
       .then((result) => {
         if (!active) return;
@@ -335,7 +400,7 @@ export default function CheckoutPage() {
     return () => {
       active = false;
     };
-  }, [checkoutRequestItems, courier, isAuthenticated, isChecking, selectedAddress?.id]);
+  }, [containsPurchaseItem, courier, isAuthenticated, isChecking, selectedAddress?.id, shippingRequestItems]);
 
   const openMidtransSnap = useCallback(
     async (payment: PendingPaymentSession) => {
@@ -511,12 +576,12 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (!selectedAddress?.id) {
+    if (containsPurchaseItem && !selectedAddress?.id) {
       setCheckoutError("Pilih alamat pengiriman terlebih dahulu.");
       return;
     }
 
-    if (!selectedShipping) {
+    if (containsPurchaseItem && !selectedShipping) {
       setCheckoutError("Pilih layanan pengiriman terlebih dahulu.");
       return;
     }
@@ -529,21 +594,52 @@ export default function CheckoutPage() {
     submitGuardRef.current = true;
     setSubmitLoading(true);
     setCheckoutError(null);
-    setCheckoutInfo("Membuat order dan menyiapkan pembayaran Midtrans...");
+    setCheckoutInfo(
+      isTradeInOnlyCheckout
+        ? "Mengirim pengajuan trade-in ke riwayat transaksi..."
+        : "Membuat order dan menyiapkan pembayaran Midtrans..."
+    );
 
     let createdPaymentSession: PendingPaymentSession | null = null;
 
     try {
       const result = await checkoutApi.processCheckout({
-        address_id: selectedAddress.id,
-        courier,
-        service: selectedShipping.service,
+        ...(containsPurchaseItem
+          ? {
+              address_id: selectedAddress?.id ?? "",
+              courier,
+              service: selectedShipping?.service ?? "",
+            }
+          : {}),
+        trade_in_discount: appliedTradeInDiscount,
         items: checkoutRequestItems,
       });
 
+      consumeItems(selectedCartItems.map((item) => item.id));
+      clearPendingPayment();
+
+      if (!result.requiresPayment) {
+        const highlightedTradeIn = result.entryKind === "trade_in" ? (result.tradeInTransactions[0] ?? null) : null;
+        const targetId = highlightedTradeIn?.id ?? result.order.id;
+        const targetNumber = highlightedTradeIn?.transactionNumber ?? result.order.orderNumber;
+
+        setCheckoutInfo(
+          isTradeInOnlyCheckout
+            ? `Pengajuan trade-in ${targetNumber} berhasil dikirim dan masuk ke riwayat transaksi.`
+            : `Pesanan ${result.order.orderNumber} berhasil dibuat tanpa pembayaran dan menunggu review trade-in.`
+        );
+
+        if (targetId && targetNumber) {
+          redirectToTransactions(targetId, targetNumber, "paid", "trade_in_submitted");
+          return;
+        }
+
+        window.location.assign("/transaksi");
+        return;
+      }
+
       const paymentSession = persistPendingPayment(buildPendingPaymentSessionFromCheckout(result));
       createdPaymentSession = paymentSession;
-      consumeItems(selectedCartItems.map((item) => item.id));
       setCheckoutInfo(`Pesanan ${paymentSession.orderNumber} berhasil dibuat. Menyiapkan pembayaran...`);
       await openMidtransSnap(paymentSession);
     } catch (error) {
@@ -657,7 +753,9 @@ export default function CheckoutPage() {
       <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <h1 className="text-4xl font-bold text-slate-900 sm:text-5xl">Checkout</h1>
         <p className="mt-2 text-sm text-slate-500 sm:text-base">
-          Periksa detail pesanan dan alamat pengiriman sebelum lanjut ke pembayaran.
+          {isTradeInOnlyCheckout
+            ? "Periksa kembali item trade-in Anda. Pengajuan ini akan langsung masuk ke transaksi tanpa pembayaran Midtrans."
+            : "Periksa detail pesanan dan alamat pengiriman sebelum lanjut ke pembayaran."}
         </p>
 
         {addressError ? (
@@ -711,58 +809,72 @@ export default function CheckoutPage() {
 
         <div className="mt-6 grid gap-4 lg:grid-cols-12 lg:items-start">
           <div className="space-y-4 lg:col-span-8">
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Alamat</p>
-                  <h2 className="mt-1 text-2xl font-bold text-slate-900">Alamat Pengiriman</h2>
+            {containsPurchaseItem ? (
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Alamat</p>
+                    <h2 className="mt-1 text-2xl font-bold text-slate-900">Alamat Pengiriman</h2>
+                  </div>
+                  <Link
+                    href="/account/addresses"
+                    className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Kelola Alamat
+                  </Link>
                 </div>
-                <Link
-                  href="/account/addresses"
-                  className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Kelola Alamat
-                </Link>
-              </div>
 
-              <div className="mt-4 grid gap-3">
-                {addressLoading && addresses.length === 0 ? (
-                  <div className="h-24 animate-pulse rounded-xl border border-slate-200 bg-slate-50" />
-                ) : null}
+                <div className="mt-4 grid gap-3">
+                  {addressLoading && addresses.length === 0 ? (
+                    <div className="h-24 animate-pulse rounded-xl border border-slate-200 bg-slate-50" />
+                  ) : null}
 
-                {addresses.map((address) => {
-                  const active = selectedAddressId === address.id;
-                  return (
-                    <button
-                      key={address.id}
-                      type="button"
-                      disabled={savingId === address.id}
-                      onClick={() => {
-                        void setMainAddress(address.id);
-                      }}
-                      className={`rounded-xl border p-4 text-left transition ${
-                        active
-                          ? "border-blue-500 bg-blue-50/60"
-                          : "border-slate-200 bg-white hover:border-slate-300"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-semibold text-slate-900">{address.recipient_name}</p>
-                        {savingId === address.id ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}
-                      </div>
-                      <p className="mt-1 text-sm text-slate-600">{address.recipient_phone ?? "-"}</p>
-                      <p className="mt-1 text-sm text-slate-700">{address.full_address}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+                  {addresses.map((address) => {
+                    const active = selectedAddressId === address.id;
+                    return (
+                      <button
+                        key={address.id}
+                        type="button"
+                        disabled={savingId === address.id}
+                        onClick={() => {
+                          void setMainAddress(address.id);
+                        }}
+                        className={`rounded-xl border p-4 text-left transition ${
+                          active
+                            ? "border-blue-500 bg-blue-50/60"
+                            : "border-slate-200 bg-white hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-semibold text-slate-900">{address.recipient_name}</p>
+                          {savingId === address.id ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : null}
+                        </div>
+                        <p className="mt-1 text-sm text-slate-600">{address.recipient_phone ?? "-"}</p>
+                        <p className="mt-1 text-sm text-slate-700">{address.full_address}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Trade-In Only</p>
+                <h2 className="mt-1 text-2xl font-bold text-slate-900">Tanpa Alamat Pengiriman Saat Ini</h2>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  Checkout ini hanya berisi pengajuan trade-in. Tidak ada produk baru yang dikirim sekarang, jadi
+                  alamat pengiriman dan ongkir belum diperlukan. Setelah trade-in disetujui, admin akan mengarahkan
+                  Anda untuk kirim device ke origin atau datang ke offline store.
+                </p>
+              </section>
+            )}
 
             <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Barang</p>
-                  <h2 className="mt-1 text-2xl font-bold text-slate-900">Barang Dipesan</h2>
+                  <h2 className="mt-1 text-2xl font-bold text-slate-900">
+                    {containsPurchaseItem ? "Ringkasan Checkout" : "Item Trade-In"}
+                  </h2>
                 </div>
                 {hasPendingProductSnapshots || productsSyncing ? (
                   <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
@@ -773,42 +885,95 @@ export default function CheckoutPage() {
               </div>
 
               <div className="mt-4 space-y-3">
-                {checkoutItems.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-slate-200 p-3">
-                    <div className="flex gap-3">
-                      <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                        <Image
-                          src={item.image}
-                          alt={item.name}
-                          fill
-                          sizes="64px"
-                          className="object-cover"
-                          unoptimized
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="line-clamp-2 text-sm font-semibold text-slate-900">{item.name}</p>
-                        {pricingReady ? (
-                          <>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {item.quantity} x {formatCurrencyIDR(item.unitPrice)}
-                            </p>
-                            <p className="mt-1 text-sm font-semibold text-slate-900">
-                              {formatCurrencyIDR(item.lineTotal)}
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <div className="mt-2 h-3.5 w-28 animate-pulse rounded bg-slate-200" />
-                            <div className="mt-2 h-4 w-24 animate-pulse rounded bg-slate-200" />
-                          </>
-                        )}
-                      </div>
+                {purchaseCheckoutItems.length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-900">Produk Baru</p>
+                      <p className="text-xs text-slate-500">Item yang akan dibayar dan dikirim</p>
                     </div>
+                    {purchaseCheckoutItems.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-slate-200 p-3">
+                        <div className="flex gap-3">
+                          <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                            <Image
+                              src={item.image}
+                              alt={item.name}
+                              fill
+                              sizes="64px"
+                              className="object-cover"
+                              unoptimized
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="line-clamp-2 text-sm font-semibold text-slate-900">{item.name}</p>
+                            {pricingReady ? (
+                              <>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {item.quantity} x {formatCurrencyIDR(item.unitPrice)}
+                                </p>
+                                <p className="mt-1 text-sm font-semibold text-slate-900">
+                                  {formatCurrencyIDR(item.lineTotal)}
+                                </p>
+                              </>
+                            ) : (
+                              <>
+                                <div className="mt-2 h-3.5 w-28 animate-pulse rounded bg-slate-200" />
+                                <div className="mt-2 h-4 w-24 animate-pulse rounded bg-slate-200" />
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                ) : null}
+
+                {tradeInCheckoutItems.length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-900">Produk Trade-In</p>
+                      <p className="text-xs text-slate-500">Nilai estimasi akan direview admin terlebih dahulu</p>
+                    </div>
+                    {tradeInCheckoutItems.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
+                        <div className="flex gap-3">
+                          <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-emerald-200 bg-white">
+                            <Image
+                              src={item.image}
+                              alt={item.name}
+                              fill
+                              sizes="64px"
+                              className="object-cover"
+                              unoptimized
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="line-clamp-2 text-sm font-semibold text-slate-900">{item.name}</p>
+                              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                                Trade-In
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {item.tradeInTransactionId ? `ID pengajuan: ${item.tradeInTransactionId}` : "Menunggu review admin"}
+                            </p>
+                            {pricingReady ? (
+                              <p className="mt-1 text-sm font-semibold text-emerald-700">
+                                Estimasi kredit {formatCurrencyIDR(item.tradeInValue)}
+                              </p>
+                            ) : (
+                              <div className="mt-2 h-4 w-28 animate-pulse rounded bg-emerald-100" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
+              {containsPurchaseItem ? (
+                <>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <label className="block">
                   <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Kurir</p>
@@ -845,27 +1010,24 @@ export default function CheckoutPage() {
 
               <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 {shippingLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}
-                <span>Estimasi tiba: {selectedShipping?.etd ? `${selectedShipping.etd} hari` : "-"}</span>
+                <span>Estimasi tiba: {formatEstimatedDelivery(selectedShipping?.etd)}</span>
                 <span className="text-slate-400">•</span>
                 <span>
                   Berat server: {quotedShippingWeight !== null ? `${quotedShippingWeight} gram` : shippingLoading ? "memverifikasi..." : "-"}
                 </span>
               </div>
-              {quotedShippingWeight !== null && quotedPackagingWeight !== null ? (
-                <p className="mt-2 text-xs text-slate-500">
-                  Berat produk {quotedItemWeight ?? Math.max(0, quotedShippingWeight - quotedPackagingWeight)} gram + kemasan {quotedPackagingWeight} gram.
-                </p>
-              ) : null}
-              {shippingStrictMode ? (
-                <p className="mt-2 text-xs text-blue-700">
-                  Strict mode aktif. Kurir hanya ditampilkan jika origin toko dan alamat tujuan sama-sama memiliki kecamatan valid.
-                </p>
-              ) : null}
               {!shippingStrictMode && selectedShipping?.note === "cached" ? (
                 <p className="mt-2 text-xs text-amber-600">
                   Estimasi ongkir memakai cache terakhir karena RajaOngkir sedang tidak merespons.
                 </p>
               ) : null}
+                </>
+              ) : (
+                <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/70 p-4 text-sm text-blue-800">
+                  Trade-in only tidak membutuhkan ongkir dan pengiriman keluar saat ini. Status lanjutan akan muncul di
+                  halaman transaksi setelah admin memeriksa foto dan kondisi device Anda.
+                </div>
+              )}
             </section>
           </div>
 
@@ -874,20 +1036,49 @@ export default function CheckoutPage() {
 
             <div className="mt-5 space-y-3 text-sm">
               <div className="flex items-center justify-between">
-                <p className="font-semibold text-slate-800">Subtotal</p>
+                <p className="font-semibold text-slate-800">
+                  {containsPurchaseItem ? "Harga Produk Baru" : "Nilai Trade-In Tersimpan"}
+                </p>
                 {pricingReady ? (
-                  <p className="font-semibold text-slate-900">{formatCurrencyIDR(subtotal)}</p>
+                  <p className="font-semibold text-slate-900">
+                    {formatCurrencyIDR(containsPurchaseItem ? subtotal : tradeInDiscount)}
+                  </p>
                 ) : (
                   <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
                 )}
               </div>
-              <div className="flex items-center justify-between">
-                <p className="font-semibold text-slate-800">Ongkos Kirim</p>
-                <p className="font-semibold text-slate-900">{formatCurrencyIDR(shippingCost)}</p>
-              </div>
+              {containsTradeInItem && containsPurchaseItem ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-emerald-600">Nilai Trade-In</p>
+                    {tradeInDiscountPercent > 0 ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        -{tradeInDiscountPercent}%
+                      </span>
+                    ) : null}
+                  </div>
+                  {pricingReady ? (
+                    <p className="font-semibold text-emerald-600">{formatDiscountCurrencyIDR(appliedTradeInDiscount)}</p>
+                  ) : (
+                    <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
+                  )}
+                </div>
+              ) : null}
+              {containsPurchaseItem ? (
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold text-slate-800">Ongkos Kirim</p>
+                  <p className="font-semibold text-slate-900">{formatCurrencyIDR(shippingCost)}</p>
+                </div>
+              ) : null}
               <div className="border-t border-slate-200 pt-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-base font-semibold text-slate-900">Total</p>
+                  <p className="text-base font-semibold text-slate-900">
+                    {containsPurchaseItem
+                      ? containsTradeInItem
+                        ? "Total Setelah Trade-In"
+                        : "Total"
+                      : "Total Pembayaran"}
+                  </p>
                   {pricingReady ? (
                     <p className="text-xl font-bold text-blue-600">{formatCurrencyIDR(totalAmount)}</p>
                   ) : (
@@ -898,27 +1089,30 @@ export default function CheckoutPage() {
             </div>
 
             <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50/70 p-3">
-              <p className="text-sm font-semibold text-blue-900">Metode Pembayaran</p>
-              <p className="mt-1 text-xs text-blue-700">Bayar Sekarang via Midtrans Snap.</p>
+              <p className="text-sm font-semibold text-blue-900">Alur Checkout</p>
+              <p className="mt-1 text-xs text-blue-700">
+                {containsPurchaseItem
+                  ? "Produk baru tetap lewat checkout. Nilai trade-in akan jadi potongan, lalu admin review device lama Anda."
+                  : "Checkout ini hanya menyimpan pengajuan trade-in ke transaksi. Tidak ada pembayaran Midtrans."}
+              </p>
               <div className="mt-2 inline-flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-blue-700">
                 <MapPin className="h-3.5 w-3.5" />
-                Tokenisasi Midtrans aktif
+                {containsPurchaseItem ? "Midtrans aktif jika masih ada sisa tagihan" : "Tanpa pembayaran"}
               </div>
             </div>
-
             <Button
               type="button"
               loading={submitLoading}
               disabled={
                 submitLoading ||
                 pendingPaymentLoading ||
-                shippingLoading ||
+                (containsPurchaseItem && shippingLoading) ||
                 cartLoading ||
-                addressLoading ||
+                (containsPurchaseItem && addressLoading) ||
                 !pricingReady ||
                 checkoutItems.length === 0 ||
-                !selectedAddress?.id ||
-                !selectedShipping ||
+                (containsPurchaseItem && !selectedAddress?.id) ||
+                (containsPurchaseItem && !selectedShipping) ||
                 Boolean(pendingPayment?.orderId)
               }
               onClick={() => {
@@ -926,12 +1120,9 @@ export default function CheckoutPage() {
               }}
               className="mt-5 h-11 w-full rounded-xl bg-blue-600 hover:bg-blue-700"
             >
-              Buat Pesanan
+              {isTradeInOnlyCheckout ? "Ajukan Trade-In" : "Buat Pesanan"}
             </Button>
 
-            <p className="mt-3 text-xs text-slate-500">
-              Ongkir dan berat pengiriman diverifikasi ulang oleh server sebelum pesanan dibuat.
-            </p>
             {submitLoading ? (
               <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />
@@ -940,7 +1131,7 @@ export default function CheckoutPage() {
             ) : null}
             {pendingPayment && !snapModalActive ? (
               <p className="mt-3 text-xs text-amber-700">
-                Buat Pesanan dinonaktifkan sementara karena order {pendingPayment.orderNumber} masih menunggu pembayaran.
+                Tombol checkout dinonaktifkan sementara karena order {pendingPayment.orderNumber} masih menunggu pembayaran.
               </p>
             ) : null}
           </aside>

@@ -26,6 +26,7 @@ export const FilterSidebar = ({ mode = "desktop" }: FilterSidebarProps) => {
     if (searchParams.get("price_min")) count += 1;
     if (searchParams.get("price_max")) count += 1;
     if (searchParams.get("search")) count += 1;
+    if (searchParams.get("trade_in")) count += 1;
     return count;
   }, [searchParams]);
 

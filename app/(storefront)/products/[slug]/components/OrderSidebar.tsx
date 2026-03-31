@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { RefreshCcw, ShoppingCart, Zap } from "lucide-react";
@@ -9,6 +9,7 @@ import { QuantitySelector } from "@/components/ui/QuantitySelector";
 import { useCart } from "@/hooks/useCart";
 import { cn } from "@/lib/utils";
 import { formatCurrencyIDR } from "@/lib/utils/formatter";
+import { buildAuthLoginRedirect, hasStorefrontSession } from "@/src/lib/auth/access";
 import type { ProductDetail } from "@/types/product.types";
 
 interface OrderSidebarProps {
@@ -33,6 +34,7 @@ export const OrderSidebar = ({
   selectedVariantSku,
 }: OrderSidebarProps) => {
   const router = useRouter();
+  const tradeInAvailable = Boolean(product.trade_in);
   const minOrder = Math.max(1, product.min_order ?? 1);
   const availableStock = Math.max(0, selectedStock);
   const quantityLimit = availableStock > 0 ? Math.min(product.max_order ?? availableStock, availableStock) : 0;
@@ -44,21 +46,21 @@ export const OrderSidebar = ({
 
   const stockInfo = STOCK_STYLE[selectedStockStatus];
   const outOfStock = selectedStockStatus === "out_of_stock" || availableStock < minOrder;
-  const subtotal = useMemo(() => quantity * selectedPrice, [quantity, selectedPrice]);
+  const normalizedQuantity = useMemo(() => {
+    if (availableStock <= 0) return minOrder;
+    return Math.min(Math.max(quantity, minOrder), quantityMax);
+  }, [availableStock, minOrder, quantity, quantityMax]);
+  const subtotal = useMemo(
+    () => normalizedQuantity * selectedPrice,
+    [normalizedQuantity, selectedPrice]
+  );
 
   const variantSummary = Object.entries(selectedVariants)
     .map(([name, value]) => `${name}: ${value}`)
     .join(", ");
 
-  useEffect(() => {
-    setQuantity((current) => {
-      if (availableStock <= 0) return minOrder;
-      return Math.min(Math.max(current, minOrder), quantityMax);
-    });
-  }, [availableStock, minOrder, quantityMax]);
-
   const handleAddToCart = async () => {
-    await addToCart(product.id, quantity, selectedVariants, {
+    await addToCart(product.id, normalizedQuantity, selectedVariants, {
       name: product.name,
       slug: product.slug,
       image: product.image,
@@ -66,12 +68,12 @@ export const OrderSidebar = ({
       variantSku: selectedVariantSku ?? undefined,
       stock: availableStock,
       minOrder,
-      tradeInEnabled: Boolean(product.trade_in),
+      tradeInEnabled: false,
     });
   };
 
   const handleBuyNow = async () => {
-    const result = await addToCart(product.id, quantity, selectedVariants, {
+    const result = await addToCart(product.id, normalizedQuantity, selectedVariants, {
       name: product.name,
       slug: product.slug,
       image: product.image,
@@ -79,7 +81,7 @@ export const OrderSidebar = ({
       variantSku: selectedVariantSku ?? undefined,
       stock: availableStock,
       minOrder,
-      tradeInEnabled: Boolean(product.trade_in),
+      tradeInEnabled: false,
     });
     if (result.success) {
       router.push("/checkout");
@@ -87,18 +89,26 @@ export const OrderSidebar = ({
   };
 
   const handleTradeIn = () => {
-    const params = new URLSearchParams({
-      product_id: product.id,
-      product_slug: product.slug,
-      product_name: product.name,
-    });
+    const params = new URLSearchParams();
 
-    router.push(`/trade-in?${params.toString()}`);
+    if (selectedVariantSku) {
+      params.set("variant_sku", selectedVariantSku);
+    }
+
+    const query = params.toString();
+    const tradeInPath = query ? `/trade-in/question/${product.slug}?${query}` : `/trade-in/question/${product.slug}`;
+
+    if (!hasStorefrontSession()) {
+      router.push(buildAuthLoginRedirect(tradeInPath));
+      return;
+    }
+
+    router.push(tradeInPath);
   };
 
   return (
     <>
-      <aside className="h-full rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)]">
+      <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)] lg:sticky lg:top-24">
         <h2 className="text-2xl font-semibold text-slate-900">Rincian Pesanan</h2>
         <p className={cn("mt-2 text-sm font-semibold", stockInfo.className)}>
           {stockInfo.label}: {availableStock}
@@ -108,7 +118,7 @@ export const OrderSidebar = ({
           <div>
             <p className="mb-2 font-semibold text-slate-700">Jumlah</p>
             <QuantitySelector
-              value={quantity}
+              value={normalizedQuantity}
               onChange={setQuantity}
               min={minOrder}
               max={quantityMax}
@@ -129,7 +139,7 @@ export const OrderSidebar = ({
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Jumlah</span>
-              <span className="font-medium text-slate-800">{quantity} item</span>
+              <span className="font-medium text-slate-800">{normalizedQuantity} item</span>
             </div>
             <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-base font-semibold text-slate-900">
               <span>Total</span>
@@ -163,7 +173,7 @@ export const OrderSidebar = ({
               Beli Sekarang
             </Button>
 
-            {product.trade_in ? (
+            {tradeInAvailable ? (
               <Button
                 type="button"
                 onClick={handleTradeIn}

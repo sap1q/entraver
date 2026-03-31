@@ -7,6 +7,7 @@ export interface CartItem {
   slug?: string;
   image: string;
   price: number;
+  displayPrice: number;
   variantSku?: string;
   quantity: number;
   stock: number;
@@ -16,6 +17,8 @@ export interface CartItem {
   tradeInEnabled: boolean;
   tradeInValue: number;
   tradeInUnitValue: number;
+  tradeInTransactionId?: string;
+  tradeInTransactionNumber?: string;
 }
 
 export interface CartSummary {
@@ -31,12 +34,15 @@ export interface AddToCartMetadata {
   slug?: string;
   image?: string;
   price?: number;
+  displayPrice?: number;
   variantSku?: string;
   stock?: number;
   minOrder?: number;
   tradeInEnabled?: boolean;
   tradeInValue?: number;
   tradeInUnitValue?: number;
+  tradeInTransactionId?: string;
+  tradeInTransactionNumber?: string;
 }
 
 export interface CartActionResult {

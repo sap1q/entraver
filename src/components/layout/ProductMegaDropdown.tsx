@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Flame, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { productsApi } from "@/lib/api/products";
 import type { Category, Product } from "@/types/product.types";
 
@@ -86,6 +86,110 @@ const makeHighlights = (newest: Product[], hottest: Product[]): HighlightProduct
   return [...fresh, ...hot];
 };
 
+type MegaMenuData = {
+  categories: Category[];
+  highlights: HighlightProduct[];
+};
+
+type HighlightProductCardProps = {
+  item: HighlightProduct;
+  onClose: () => void;
+};
+
+let megaMenuDataCache: MegaMenuData | null = null;
+let megaMenuDataPromise: Promise<MegaMenuData> | null = null;
+
+const loadMegaMenuData = async (): Promise<MegaMenuData> => {
+  if (megaMenuDataCache) return megaMenuDataCache;
+  if (megaMenuDataPromise) return megaMenuDataPromise;
+
+  megaMenuDataPromise = (async () => {
+    const [newestResponse, hottestResponse, fetchedCategories] = await Promise.all([
+      productsApi.getProducts({ per_page: 8, sort_by: "newest" }),
+      productsApi.getProducts({ per_page: 8, sort_by: "popular" }),
+      productsApi
+        .getCategories({
+          limit: 8,
+          timeout: 12000,
+        })
+        .then((response) => response.data)
+        .catch((error) => {
+          console.warn("[mega-menu] kategori tidak berhasil dimuat, memakai fallback dari produk.", error);
+          return [] as Category[];
+        }),
+    ]);
+    const highlightedProducts = makeHighlights(newestResponse.data, hottestResponse.data);
+
+    const fallbackCategories = highlightedProducts
+      .map((item) => item.product.category)
+      .filter(
+        (category, index, all) =>
+          all.findIndex((candidate) => candidate.slug === category.slug) === index
+      )
+      .map((category) => ({
+        id: category.id,
+        slug: category.slug,
+        name: category.name,
+        product_count: 0,
+      }));
+
+    const categoriesForMenu = fetchedCategories.length > 0 ? fetchedCategories : fallbackCategories;
+    const resolvedData = {
+      categories: categoriesForMenu,
+      highlights: highlightedProducts,
+    } satisfies MegaMenuData;
+
+    megaMenuDataCache = resolvedData;
+    megaMenuDataPromise = null;
+    return resolvedData;
+  })().catch((error) => {
+    megaMenuDataPromise = null;
+    throw error;
+  });
+
+  return megaMenuDataPromise;
+};
+
+const HighlightProductCard = memo(function HighlightProductCard({
+  item,
+  onClose,
+}: HighlightProductCardProps) {
+  return (
+    <motion.div variants={productCardMotion} initial="initial" animate="animate">
+      <Link
+        href={`/products/${item.product.slug}`}
+        onClick={onClose}
+        className="group flex aspect-square h-full max-w-[190px] flex-col overflow-hidden rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(15,23,42,0.08)]"
+      >
+        <div className="relative flex-1 overflow-hidden rounded-[18px] border border-slate-100 bg-white">
+          <Image
+            src={item.product.image}
+            alt={item.product.name}
+            fill
+            unoptimized
+            className="object-contain p-3 transition-transform duration-300 group-hover:scale-[1.03]"
+            sizes="(max-width: 1280px) 18vw, 180px"
+          />
+          <span
+            className={`absolute left-2.5 top-2.5 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold text-white shadow-sm ${
+              item.badge === "HOT" ? "bg-rose-500" : "bg-slate-900"
+            }`}
+          >
+            {item.badge === "HOT" ? <Flame className="h-3 w-3" /> : <Sparkles className="h-3 w-3" />}
+            {item.badge}
+          </span>
+        </div>
+        <div className="mt-3 min-h-[3rem]">
+          <p className="line-clamp-2 text-[13px] font-semibold leading-5 text-slate-900">{item.product.name}</p>
+          <p className="mt-1 text-xs text-slate-500">{item.product.category.name}</p>
+        </div>
+      </Link>
+    </motion.div>
+  );
+});
+
+HighlightProductCard.displayName = "HighlightProductCard";
+
 export function ProductMegaDropdown({
   open,
   onMouseEnter,
@@ -95,44 +199,43 @@ export function ProductMegaDropdown({
   const [categories, setCategories] = useState<Category[]>([]);
   const [highlights, setHighlights] = useState<HighlightProduct[]>([]);
   const [activeCategorySlug, setActiveCategorySlug] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (megaMenuDataCache || megaMenuDataPromise) return;
+
+    const warmupTimer = window.setTimeout(() => {
+      void loadMegaMenuData().catch(() => undefined);
+    }, 180);
+
+    return () => window.clearTimeout(warmupTimer);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+
     let mounted = true;
 
     const fetchMegaMenuData = async () => {
+      if (megaMenuDataCache) {
+        setCategories(megaMenuDataCache.categories);
+        setHighlights(megaMenuDataCache.highlights);
+        setActiveCategorySlug((prev) => {
+          if (prev && megaMenuDataCache.categories.some((category) => category.slug === prev)) return prev;
+          return megaMenuDataCache.categories[0]?.slug ?? megaMenuDataCache.highlights[0]?.product.category.slug ?? null;
+        });
+        setLoading(false);
+        setError(null);
+        return;
+      }
+
       setLoading(true);
       setError(null);
 
       try {
-        // Avoid parallel requests here because the local Laravel dev server can serialize them.
-        const categoryResponse = await productsApi.getCategories();
+        const { categories: categoriesForMenu, highlights: highlightedProducts } = await loadMegaMenuData();
         if (!mounted) return;
-
-        const newestResponse = await productsApi.getProducts({ per_page: 8, sort_by: "newest" });
-        if (!mounted) return;
-
-        const hottestResponse = await productsApi.getProducts({ per_page: 8, sort_by: "popular" });
-
-        if (!mounted) return;
-
-        const fetchedCategories = categoryResponse.data;
-        const highlightedProducts = makeHighlights(newestResponse.data, hottestResponse.data);
-        const fallbackCategories = highlightedProducts
-          .map((item) => item.product.category)
-          .filter(
-            (category, index, all) =>
-              all.findIndex((candidate) => candidate.slug === category.slug) === index
-          )
-          .map((category) => ({
-            id: category.id,
-            slug: category.slug,
-            name: category.name,
-            product_count: 0,
-          }));
-        const categoriesForMenu =
-          fetchedCategories.length > 0 ? fetchedCategories : fallbackCategories;
 
         setCategories(categoriesForMenu);
         setHighlights(highlightedProducts);
@@ -156,12 +259,16 @@ export function ProductMegaDropdown({
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [open]);
 
   const visibleCategories = useMemo(() => categories.slice(0, 8), [categories]);
+  const activeCategoryName = useMemo(
+    () => categories.find((category) => category.slug === activeCategorySlug)?.name ?? "Semua",
+    [activeCategorySlug, categories]
+  );
 
   const filteredHighlights = useMemo(() => {
-    if (!activeCategorySlug) return highlights.slice(0, 6);
+    if (!activeCategorySlug) return highlights.slice(0, 4);
 
     const filtered = highlights.filter(
       (item) =>
@@ -169,7 +276,7 @@ export function ProductMegaDropdown({
         item.product.category.id === activeCategorySlug
     );
 
-    return (filtered.length > 0 ? filtered : highlights).slice(0, 6);
+    return (filtered.length > 0 ? filtered : highlights).slice(0, 4);
   }, [activeCategorySlug, highlights]);
 
   const handleCategoryActivate = useCallback((slug: string) => {
@@ -261,23 +368,26 @@ export function ProductMegaDropdown({
                 </Link>
               </aside>
 
-              <section>
+              <section className="max-w-[860px]">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
                     Pilihan Produk
                   </p>
                   {activeCategorySlug ? (
                     <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
-                      {categories.find((category) => category.slug === activeCategorySlug)?.name ?? "Semua"}
+                      {activeCategoryName}
                     </span>
                   ) : null}
                 </div>
 
                 {loading ? (
-                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                    {Array.from({ length: 3 }).map((_, index) => (
-                      <div key={index} className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-3">
-                        <div className="h-32 animate-pulse rounded-xl bg-slate-100" />
+                  <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                    {Array.from({ length: 4 }).map((_, index) => (
+                      <div
+                        key={index}
+                        className="aspect-square max-w-[190px] overflow-hidden rounded-[24px] border border-slate-200 bg-white p-3"
+                      >
+                        <div className="h-[70%] animate-pulse rounded-[18px] bg-slate-100" />
                         <div className="mt-3 h-4 w-4/5 animate-pulse rounded bg-slate-100" />
                         <div className="mt-2 h-3 w-2/5 animate-pulse rounded bg-slate-100" />
                       </div>
@@ -299,46 +409,14 @@ export function ProductMegaDropdown({
                       initial="initial"
                       animate="animate"
                       exit="exit"
-                      className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+                      className="grid grid-cols-2 gap-3 xl:grid-cols-4"
                     >
                       {filteredHighlights.map((item) => (
-                        <motion.div
+                        <HighlightProductCard
                           key={`${item.product.id}-${item.badge}`}
-                          variants={productCardMotion}
-                          initial="initial"
-                          animate="animate"
-                        >
-                          <Link
-                            href={`/products/${item.product.slug}`}
-                            onClick={onClose}
-                            className="group block overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                          >
-                            <div className="relative h-32 overflow-hidden rounded-xl bg-slate-100">
-                              <Image
-                                src={item.product.image}
-                                alt={item.product.name}
-                                fill
-                                unoptimized
-                                className="object-cover transition-transform duration-500 group-hover:scale-105"
-                                sizes="(max-width: 1280px) 40vw, 300px"
-                              />
-                              <span
-                                className={`absolute left-2 top-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-white ${
-                                  item.badge === "HOT" ? "bg-rose-500" : "bg-slate-900"
-                                }`}
-                              >
-                                {item.badge === "HOT" ? (
-                                  <Flame className="h-3 w-3" />
-                                ) : (
-                                  <Sparkles className="h-3 w-3" />
-                                )}
-                                {item.badge}
-                              </span>
-                            </div>
-                            <p className="mt-3 line-clamp-2 text-sm font-semibold text-slate-900">{item.product.name}</p>
-                            <p className="mt-1 text-xs text-slate-500">{item.product.category.name}</p>
-                          </Link>
-                        </motion.div>
+                          item={item}
+                          onClose={onClose}
+                        />
                       ))}
                     </motion.div>
                   </AnimatePresence>

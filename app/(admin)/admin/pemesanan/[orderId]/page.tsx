@@ -16,6 +16,7 @@ import {
   UserRound,
 } from "lucide-react";
 import api from "@/lib/axios";
+import { formatDisplayAddress } from "@/lib/utils/address";
 import { formatCurrencyIDR, formatDateID, formatDateTimeID } from "@/lib/utils/formatter";
 
 type AdminSalesOrderStatus = "dibayar" | "diproses" | "dikirim" | "terkirim" | "selesai" | "dibatalkan";
@@ -88,23 +89,7 @@ const toFriendlyError = (error: unknown): string => {
   return "Terjadi gangguan saat memuat detail pesanan.";
 };
 
-const toTitleCase = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/\b([a-z])/g, (match) => match.toUpperCase())
-    .replace(/\bRt\b/g, "RT")
-    .replace(/\bRw\b/g, "RW");
-
-const formatAddress = (value: string | null): string => {
-  if (!value) return "-";
-
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => toTitleCase(line))
-    .join("\n");
-};
+const formatAddress = (value: string | null): string => formatDisplayAddress(value) ?? "-";
 
 const resolveStatusMeta = (order: AdminSalesOrder | null): {
   label: string;

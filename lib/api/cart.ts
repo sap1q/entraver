@@ -10,6 +10,7 @@ export interface CartApiItem {
   slug?: string;
   image: string;
   price: number;
+  displayPrice: number;
   variantSku?: string;
   quantity: number;
   stock: number;
@@ -19,6 +20,8 @@ export interface CartApiItem {
   tradeInEnabled: boolean;
   tradeInValue: number;
   tradeInUnitValue: number;
+  tradeInTransactionId?: string;
+  tradeInTransactionNumber?: string;
 }
 
 export interface CartApiResponse {
@@ -132,6 +135,15 @@ const buildVariantKey = (variants: Record<string, string>): string => {
     .join("|");
 };
 
+const buildTradeInLineKey = (tradeInTransactionId?: string | null, tradeInEnabled?: boolean): string => {
+  const normalizedTransactionId = toStringValue(tradeInTransactionId);
+  if (normalizedTransactionId) {
+    return `trade-in:${normalizedTransactionId}`;
+  }
+
+  return tradeInEnabled ? "trade-in:pending" : "standard";
+};
+
 const resolveCartRows = (payload: unknown): unknown[] => {
   if (Array.isArray(payload)) return payload;
 
@@ -165,6 +177,12 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
 
   const variants = extractVariantMap(row, product);
   const variantKey = buildVariantKey(variants);
+  const tradeInEnabled = toBooleanValue(row.trade_in_enabled ?? row.is_trade_in);
+  const tradeInTransactionId =
+    toStringValue(row.trade_in_transaction_id) ??
+    toStringValue(toObject(row.metadata).trade_in_transaction_id) ??
+    null;
+  const lineKey = buildTradeInLineKey(tradeInTransactionId, tradeInEnabled);
 
   const productId =
     toStringValue(row.product_id) ??
@@ -175,7 +193,7 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
     toStringValue(row.id) ??
     toStringValue(row.item_id) ??
     toStringValue(row.cart_item_id) ??
-    (productId ? `${productId}:${variantKey || "default"}` : null);
+    (productId ? `${productId}:${variantKey || "default"}:${lineKey}` : null);
   const name =
     toStringValue(row.name) ??
     toStringValue(row.product_name) ??
@@ -190,6 +208,11 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
     toNumberValue(row.product_price) ??
     toNumberValue(product.price) ??
     0;
+  const displayPrice =
+    toNumberValue(row.display_price) ??
+    toNumberValue(row.entraverse_price) ??
+    toNumberValue(product.entraverse_price) ??
+    price;
   const quantity = Math.max(1, normalizePositiveInt(row.quantity ?? row.qty, 1));
   const stock =
     normalizePositiveInt(
@@ -201,9 +224,10 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
     normalizePositiveInt(row.min_order ?? product.min_order, 1)
   );
   const selected = row.selected === undefined ? true : toBooleanValue(row.selected ?? row.is_selected);
-  const tradeInEnabled = toBooleanValue(
-    row.trade_in_enabled ?? row.trade_in ?? product.trade_in_enabled ?? product.trade_in
-  );
+  const tradeInTransactionNumber =
+    toStringValue(row.trade_in_transaction_number) ??
+    toStringValue(toObject(row.metadata).trade_in_transaction_number) ??
+    null;
   const tradeInUnitValue =
     toNumberValue(row.trade_in_per_item) ??
     toNumberValue(row.trade_in_value_per_unit) ??
@@ -226,6 +250,7 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
       toStringValue(product.image) ??
       CART_PLACEHOLDER_IMAGE,
     price: Math.max(0, price),
+    displayPrice: Math.max(0, displayPrice),
     variantSku:
       toStringValue(row.variant_sku) ??
       toStringValue(row.sku) ??
@@ -236,9 +261,11 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
     minOrder,
     selected,
     variants,
-    tradeInEnabled,
+    tradeInEnabled: tradeInEnabled || tradeInTransactionId !== null,
     tradeInValue: Math.max(0, tradeInValue),
     tradeInUnitValue: Math.max(0, tradeInUnitValue),
+    tradeInTransactionId: tradeInTransactionId ?? undefined,
+    tradeInTransactionNumber: tradeInTransactionNumber ?? undefined,
   };
 };
 

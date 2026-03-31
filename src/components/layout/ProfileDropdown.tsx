@@ -47,6 +47,7 @@ type ProfileDropdownUser = {
 };
 
 type ProfileDropdownProps = {
+  variant?: "default" | "overlay";
   isLoggedIn: boolean;
   user?: ProfileDropdownUser;
   onLogout?: () => void;
@@ -122,6 +123,7 @@ function MenuItemButton({ item, onClose }: MenuItemButtonProps) {
 }
 
 export function ProfileDropdown({
+  variant = "default",
   isLoggedIn,
   user,
   onLogout,
@@ -145,6 +147,7 @@ export function ProfileDropdown({
     : "G";
   const activeAvatarUrl = user?.avatarUrl ?? null;
   const showAvatarImage = Boolean(activeAvatarUrl && brokenAvatarUrl !== activeAvatarUrl);
+  const isOverlay = variant === "overlay";
 
   useEffect(() => {
     if (!open) return;
@@ -205,7 +208,12 @@ export function ProfileDropdown({
     <div ref={rootRef} className={cn("relative font-sans", className)}>
       <button
         type="button"
-        className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-slate-700 shadow-[0_8px_20px_rgba(15,23,42,0.08)] transition-colors hover:border-purple-200 hover:text-purple-600"
+        className={cn(
+          "inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border transition-[background-color,color,border-color,box-shadow] duration-300",
+          isOverlay
+            ? "border-white/15 bg-white/[0.08] text-white shadow-[0_12px_30px_rgba(15,23,42,0.14)] hover:border-white/30 hover:bg-white/[0.14]"
+            : "border-slate-200 bg-white text-slate-700 shadow-[0_8px_20px_rgba(15,23,42,0.08)] hover:border-purple-200 hover:text-purple-600"
+        )}
         aria-label="Menu profil"
         aria-expanded={open}
         aria-haspopup="menu"
@@ -220,7 +228,12 @@ export function ProfileDropdown({
             onError={() => setBrokenAvatarUrl(activeAvatarUrl)}
           />
         ) : (
-          <span className="inline-flex h-full w-full items-center justify-center rounded-full bg-slate-900 text-xs font-semibold tracking-wide text-white">
+          <span
+            className={cn(
+              "inline-flex h-full w-full items-center justify-center rounded-full text-xs font-semibold tracking-wide",
+              isOverlay ? "bg-white/[0.18] text-white" : "bg-slate-900 text-white"
+            )}
+          >
             {initials}
           </span>
         )}

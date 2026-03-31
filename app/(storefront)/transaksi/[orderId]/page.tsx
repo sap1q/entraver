@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, Ban, CheckCheck, Clock3, Copy, Loader2, PackageSearch, RotateCcw } from "lucide-react";
 import { AccountShell } from "@/app/(storefront)/account/components/AccountShell";
+import { TradeInFulfillmentNotice } from "@/app/(storefront)/transaksi/components/TradeInFulfillmentNotice";
 import { Button } from "@/components/ui/Button";
 import { useRequireStorefrontAuth } from "@/hooks/useRequireStorefrontAuth";
 import type { CustomerOrder } from "@/lib/api/customer-orders";
@@ -29,6 +30,7 @@ import {
   savePendingPaymentSession,
   type PendingPaymentSession,
 } from "@/lib/payments/midtrans-session";
+import { formatDisplayAddress } from "@/lib/utils/address";
 import { formatCurrencyIDR, formatDateID, formatDateTimeID } from "@/lib/utils/formatter";
 import { resolveApiAssetUrl } from "@/lib/utils/media";
 
@@ -47,6 +49,12 @@ const statusBadgeClass = (statusGroup: CustomerOrder["statusGroup"]): string => 
       return "border-blue-200 bg-blue-50 text-blue-700";
   }
 };
+
+const tradeInBadgeClass = "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+const isTradeInOrderItem = (
+  item: Pick<CustomerOrder["items"][number], "tradeInEnabled" | "tradeInTransactionId">
+): boolean => item.tradeInEnabled || Boolean(item.tradeInTransactionId);
 
 const paymentTone = (
   isPending: boolean | undefined,
@@ -97,23 +105,65 @@ const paymentTone = (
   };
 };
 
-const toTitleCase = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/\b([a-z])/g, (match) => match.toUpperCase())
-    .replace(/\bRt\b/g, "RT")
-    .replace(/\bRw\b/g, "RW");
+function OrderProgress({
+  currentStep,
+  stages,
+}: {
+  currentStep: number;
+  stages: CustomerOrder["progressStages"];
+}) {
+  const orderedStages = [...stages].sort((left, right) => left.step - right.step);
+  const safeStep = Math.min(Math.max(1, Math.round(currentStep || 1)), orderedStages.length || 1);
 
-const formatShippingAddress = (value: string | null): string | null => {
-  if (!value) return null;
+  return (
+    <div className="mt-6 overflow-x-auto pb-1">
+      <div className="min-w-[640px]">
+        <div
+          className="grid gap-2"
+          style={{ gridTemplateColumns: `repeat(${Math.max(orderedStages.length, 1)}, minmax(120px, 1fr))` }}
+        >
+          {orderedStages.map((stage, index) => {
+            const isPointActive = stage.step <= safeStep;
+            const isLeftLineActive = stage.step <= safeStep;
+            const isRightLineActive = stage.step < safeStep;
 
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => toTitleCase(line))
-    .join("\n");
-};
+            return (
+              <div key={`${stage.code}-${stage.step}`} className="relative flex flex-col items-center gap-2 text-center">
+                <div className="relative flex w-full items-center justify-center">
+                  {index > 0 ? (
+                    <span
+                      className={`absolute left-0 right-1/2 h-[3px] rounded-full ${
+                        isLeftLineActive ? "bg-blue-600" : "bg-slate-200"
+                      }`}
+                    />
+                  ) : null}
+
+                  {index < orderedStages.length - 1 ? (
+                    <span
+                      className={`absolute left-1/2 right-0 h-[3px] rounded-full ${
+                        isRightLineActive ? "bg-blue-600" : "bg-slate-200"
+                      }`}
+                    />
+                  ) : null}
+
+                  <span
+                    className={`relative z-10 h-3.5 w-3.5 rounded-full border-2 ${
+                      isPointActive ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-white"
+                    }`}
+                  />
+                </div>
+
+                <p className={`text-[11px] leading-4 ${isPointActive ? "font-semibold text-blue-700" : "text-slate-500"}`}>
+                  {stage.label}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function TransactionDetailPage() {
   const params = useParams<{ orderId: string }>();
@@ -125,8 +175,10 @@ export default function TransactionDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  const [cancelLoading, setCancelLoading] = useState(false);
   const [resumeLoading, setResumeLoading] = useState(false);
   const [confirmReceiveLoading, setConfirmReceiveLoading] = useState(false);
+  const [tradeInFulfillmentLoading, setTradeInFulfillmentLoading] = useState(false);
 
   const loadOrder = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -174,6 +226,7 @@ export default function TransactionDetailPage() {
 
   const paymentDetails = useMemo(() => {
     if (!order) return null;
+    if (!order.requiresPayment) return order.paymentDetails;
     const snapshot = getPendingPaymentSnapshot(order.orderNumber);
 
     if (order.paymentDetails?.accountNumber || !snapshot) {
@@ -203,12 +256,39 @@ export default function TransactionDetailPage() {
 
   const invoiceNumber = order?.invoiceNumber ?? order?.orderNumber ?? "-";
   const paymentBadgeTone = paymentTone(paymentDetails?.isPending, order?.statusGroup ?? "ongoing");
-  const shippingAddress = formatShippingAddress(order?.customerAddress ?? null);
-  const canResumePayment = Boolean(order?.canResumePayment || paymentDetails?.canResumePayment);
+  const shippingAddress = formatDisplayAddress(order?.customerAddress ?? null);
+  const canResumePayment = Boolean(order?.requiresPayment && (order.canResumePayment || paymentDetails?.canResumePayment));
   const canCancelOrder = order ? canCustomerOrderBeCancelled(order) : false;
   const canTrackShipment = order ? canCustomerOrderTrackShipment(order) : false;
   const canRequestReturn = order ? canCustomerOrderRequestReturn(order) : false;
   const canConfirmReceived = Boolean(order && !paymentDetails?.isPending && order.canConfirmReceived);
+  const hasPurchaseItem = Boolean(order?.items.some((item) => !isTradeInOrderItem(item)));
+
+  const handleCancelTradeIn = useCallback(async () => {
+    if (!order || order.kind !== "trade_in") return;
+
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `Batalkan pengajuan trade-in ${order.orderNumber}? Tindakan ini final dan tidak bisa di-undo.`
+      );
+
+      if (!confirmed) return;
+    }
+
+    try {
+      setCancelLoading(true);
+      setError(null);
+      setInfo(null);
+      const nextOrder = await customerOrdersApi.cancelOrder(order.id);
+      setOrder(nextOrder);
+      setInfo(`Pengajuan trade-in ${order.orderNumber} berhasil dibatalkan.`);
+    } catch (cancelError) {
+      setInfo(null);
+      setError(toFriendlyError(cancelError));
+    } finally {
+      setCancelLoading(false);
+    }
+  }, [order]);
 
   const handleCopy = async (value: string, label: string) => {
     try {
@@ -403,6 +483,35 @@ export default function TransactionDetailPage() {
     }
   }, [order]);
 
+  const handleSubmitTradeInFulfillment = useCallback(
+    async (payload: {
+      fulfillment_method: "pengiriman" | "offline_store";
+      shipment_tracking_number?: string | null;
+    }) => {
+      if (!order) return;
+
+      setTradeInFulfillmentLoading(true);
+      setError(null);
+      setInfo(null);
+
+      try {
+        const nextOrder = await customerOrdersApi.submitTradeInFulfillment(order.id, payload);
+        setOrder(nextOrder);
+        setInfo(
+          payload.fulfillment_method === "pengiriman"
+            ? `Resi trade-in ${nextOrder.orderNumber} berhasil dikirim. Status masuk ke verifikasi fisik.`
+            : `Pilihan datang ke store untuk trade-in ${nextOrder.orderNumber} berhasil disimpan.`
+        );
+      } catch (submitError) {
+        setInfo(null);
+        setError(toFriendlyError(submitError));
+      } finally {
+        setTradeInFulfillmentLoading(false);
+      }
+    },
+    [order]
+  );
+
   if (isChecking || !isAuthenticated) {
     return (
       <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.10),_transparent_32%),linear-gradient(180deg,#f8fbff_0%,#f3f6fb_100%)]">
@@ -464,20 +573,39 @@ export default function TransactionDetailPage() {
                 </div>
 
                 <div className="space-y-2 text-left sm:text-right">
-                  <span
-                    className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${statusBadgeClass(
-                      order.statusGroup
-                    )}`}
-                  >
-                    {paymentDetails?.statusLabel ?? order.statusLabel}
-                  </span>
+                  <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+                    <span
+                      className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${statusBadgeClass(
+                        order.statusGroup
+                      )}`}
+                    >
+                      {paymentDetails?.statusLabel ?? order.statusLabel}
+                    </span>
+                    {order.hasTradeIn ? (
+                      <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${tradeInBadgeClass}`}>
+                        Trade-In
+                      </span>
+                    ) : null}
+                  </div>
                   <p className="text-sm text-slate-500">
                     Pembayaran: <span className="font-medium text-slate-700">{paymentDetails?.methodLabel ?? order.paymentMethodLabel}</span>
                   </p>
                 </div>
               </div>
 
-              <div className={`mt-6 rounded-[28px] border p-5 sm:p-6 ${paymentBadgeTone.shell}`}>
+              {order.statusGroup !== "cancelled" ? (
+                <OrderProgress currentStep={order.statusStep} stages={order.progressStages} />
+              ) : null}
+
+              <TradeInFulfillmentNotice
+                key={`${order.id}:${order.tradeInFulfillmentMethod ?? ""}:${order.tradeInShipmentTrackingNumber ?? ""}:${order.tradeInStatus ?? ""}`}
+                order={order}
+                submitting={tradeInFulfillmentLoading}
+                onSubmit={handleSubmitTradeInFulfillment}
+              />
+
+              {order.requiresPayment ? (
+                <div className={`mt-6 rounded-[28px] border p-5 sm:p-6 ${paymentBadgeTone.shell}`}>
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="inline-flex items-center gap-2">
                     <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full bg-white ${paymentBadgeTone.accent}`}>
@@ -574,12 +702,18 @@ export default function TransactionDetailPage() {
                       <Button
                         type="button"
                         variant="outline"
+                        disabled={cancelLoading}
                         onClick={() => {
+                          if (order.kind === "trade_in") {
+                            void handleCancelTradeIn();
+                            return;
+                          }
+
                           openOrderActionSupport("cancel");
                         }}
                         className="h-11 rounded-xl border-rose-200 px-5 text-sm font-semibold text-rose-600 hover:bg-rose-50"
                       >
-                        <Ban className="h-4 w-4" />
+                        {cancelLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
                         Batalkan
                       </Button>
                     ) : null}
@@ -644,7 +778,88 @@ export default function TransactionDetailPage() {
                     </div>
                   </div>
                 ) : null}
-              </div>
+                </div>
+              ) : (
+                <div className="mt-6 rounded-[28px] border border-blue-200 bg-blue-50/70 p-5 sm:p-6">
+                  <div className="flex items-start gap-3">
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-blue-700">
+                      <Clock3 className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-blue-900">Pengajuan trade-in sedang diproses</p>
+                      <p className="mt-1 text-sm leading-6 text-blue-800">
+                        Tidak ada pembayaran Midtrans untuk transaksi ini. Admin akan review foto dan data device Anda
+                        terlebih dahulu. Setelah disetujui, status akan berubah menjadi trade-in diterima lalu Anda
+                        bisa kirim paket ke origin atau datang ke offline store kami.
+                      </p>
+                    </div>
+                  </div>
+
+                  {canCancelOrder || canTrackShipment || canConfirmReceived || canRequestReturn ? (
+                    <div className="mt-6 flex flex-wrap gap-3">
+                    {canCancelOrder ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={cancelLoading}
+                        onClick={() => {
+                          if (order.kind === "trade_in") {
+                            void handleCancelTradeIn();
+                            return;
+                          }
+
+                          openOrderActionSupport("cancel");
+                        }}
+                        className="h-11 rounded-xl border-rose-200 px-5 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                      >
+                        {cancelLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                        Batalkan
+                      </Button>
+                    ) : null}
+
+                      {canTrackShipment ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleTrackPackage}
+                          className="h-11 rounded-xl border-slate-300 px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          <PackageSearch className="h-4 w-4" />
+                          Lacak Pesanan
+                        </Button>
+                      ) : null}
+
+                      {canConfirmReceived ? (
+                        <Button
+                          type="button"
+                          disabled={confirmReceiveLoading}
+                          onClick={() => {
+                            void handleConfirmReceived();
+                          }}
+                          className="h-11 rounded-xl bg-emerald-600 px-5 text-sm font-semibold hover:bg-emerald-700"
+                        >
+                          {confirmReceiveLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                          Pesanan Diterima
+                        </Button>
+                      ) : null}
+
+                      {canRequestReturn ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            openOrderActionSupport("return");
+                          }}
+                          className="h-11 rounded-xl border-amber-200 px-5 text-sm font-semibold text-amber-700 hover:bg-amber-50"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          Ajukan Retur
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </section>
 
             <section className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-[0_24px_64px_rgba(15,23,42,0.06)] sm:p-6">
@@ -664,15 +879,36 @@ export default function TransactionDetailPage() {
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <p className="text-lg font-semibold text-slate-950">{item.productName}</p>
-                        <p className="mt-1 text-sm text-slate-500">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-lg font-semibold text-slate-950">{item.productName}</p>
+                          {isTradeInOrderItem(item) ? (
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${tradeInBadgeClass}`}>
+                              Trade-In
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className={`mt-1 text-sm text-slate-500 ${isTradeInOrderItem(item) ? "hidden" : ""}`}>
                           {item.variantName ? `${item.variantName} • ` : ""}
                           {item.quantity} x {formatCurrencyIDR(item.unitPrice)}
                         </p>
-                        <p className="mt-1 text-xs text-slate-400">1x Rp {item.unitPrice.toLocaleString("id-ID")}</p>
+                        {isTradeInOrderItem(item) ? (
+                          <p className="mt-1 text-sm text-slate-500">{item.variantName || "Item trade-in untuk review admin"}</p>
+                        ) : null}
+                        {isTradeInOrderItem(item) ? (
+                          <p className="mt-1 text-xs text-emerald-700">
+                            Estimasi trade-in: {formatCurrencyIDR(item.tradeInEstimatedAmount ?? 0)}
+                          </p>
+                        ) : null}
+                        {!isTradeInOrderItem(item) ? (
+                          <p className="mt-1 text-xs text-slate-400">1x Rp {item.unitPrice.toLocaleString("id-ID")}</p>
+                        ) : null}
                       </div>
 
-                      <p className="shrink-0 text-base font-semibold text-slate-950">{formatCurrencyIDR(item.lineTotal)}</p>
+                      <p className="shrink-0 text-base font-semibold text-slate-950">
+                        {isTradeInOrderItem(item)
+                          ? formatCurrencyIDR(item.tradeInEstimatedAmount ?? 0)
+                          : formatCurrencyIDR(item.lineTotal)}
+                      </p>
                     </div>
                   </article>
                 ))}
@@ -680,7 +916,9 @@ export default function TransactionDetailPage() {
             </section>
 
             <section className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-[0_24px_64px_rgba(15,23,42,0.06)] sm:p-6">
-              <h3 className="text-2xl font-bold tracking-tight text-slate-950">Alamat Pengiriman</h3>
+              <h3 className="text-2xl font-bold tracking-tight text-slate-950">
+                {hasPurchaseItem ? "Alamat Pengiriman" : "Data Verifikasi Customer"}
+              </h3>
               <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-700">
                 <p className="text-base font-semibold text-slate-950">{order.customerName}</p>
                 {order.customerPhone ? <p className="mt-1">{order.customerPhone}</p> : null}
@@ -689,7 +927,8 @@ export default function TransactionDetailPage() {
               </div>
             </section>
 
-            <div className="grid gap-6 xl:grid-cols-2 xl:items-stretch">
+            {hasPurchaseItem ? (
+              <div className="grid gap-6 xl:grid-cols-2 xl:items-stretch">
               <section className="flex h-full flex-col rounded-[32px] border border-slate-200 bg-white p-5 shadow-[0_24px_64px_rgba(15,23,42,0.06)] sm:p-6">
                 <h3 className="text-2xl font-bold tracking-tight text-slate-950">Rincian Biaya</h3>
                 <div className="mt-6 grid flex-1 auto-rows-min gap-y-4 text-sm">
@@ -741,7 +980,17 @@ export default function TransactionDetailPage() {
                   </div>
                 </div>
               </section>
-            </div>
+              </div>
+            ) : (
+              <section className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-[0_24px_64px_rgba(15,23,42,0.06)] sm:p-6">
+                <h3 className="text-2xl font-bold tracking-tight text-slate-950">Langkah Selanjutnya</h3>
+                <div className="mt-5 rounded-[24px] border border-blue-200 bg-blue-50/70 px-5 py-4 text-sm leading-7 text-blue-900">
+                  Pengajuan trade-in ini belum menagih pembayaran. Tunggu admin meninjau foto dan data perangkat Anda.
+                  Jika trade-in diterima, status transaksi akan bergerak ke tahap pengiriman device lama ke origin atau
+                  kunjungan ke offline store kami untuk verifikasi fisik.
+                </div>
+              </section>
+            )}
           </>
         ) : null}
       </div>

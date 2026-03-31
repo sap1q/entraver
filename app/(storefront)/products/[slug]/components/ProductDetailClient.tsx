@@ -7,7 +7,6 @@ import { OrderSidebar } from "./OrderSidebar";
 import { ProductDescription } from "./ProductDescription";
 import { ProductHero } from "./ProductHero";
 import { ProductReviews } from "./ProductReviews";
-import { ProductSpecifications } from "./ProductSpecifications";
 import { resolveSelectedProductPrice, resolveSelectedVariantRow, resolveVariantRowIdentity } from "./productPricing";
 
 interface ProductDetailClientProps {
@@ -43,10 +42,9 @@ export const ProductDetailClient = ({ product }: ProductDetailClientProps) => {
             selectedVariants={selectedVariants}
             onVariantChange={updateVariant}
           />
-          <ProductSpecifications product={product} />
         </div>
 
-        <div className="lg:col-span-4 lg:self-stretch">
+        <div className="lg:col-span-4 lg:self-start">
           <OrderSidebar
             product={product}
             selectedPrice={selectedPrice}

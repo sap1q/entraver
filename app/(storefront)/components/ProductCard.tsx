@@ -1,29 +1,47 @@
-import Link from "next/link";
+"use client";
+
+import { ProductCard as SharedProductCard } from "@/components/features/products/ProductCard";
 import type { StorefrontProduct } from "@/lib/api/types";
+import { slugifyValue } from "@/lib/utils/formatter";
+import type { Product } from "@/types/product.types";
 
 type ProductCardProps = {
   product: StorefrontProduct;
 };
 
-export default function ProductCard({ product }: ProductCardProps) {
-  return (
-    <Link
-      href={`/products/${encodeURIComponent(product.slug)}`}
-      className="block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
-    >
-      <div className="aspect-square bg-slate-100">
-        {product.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-slate-400">No Image</div>
-        )}
-      </div>
+const toFallbackSlug = (value: string | null, fallback: string) => {
+  const normalized = value?.trim() ?? "";
+  return slugifyValue(normalized || fallback) || fallback;
+};
 
-      <div className="space-y-3 p-4">
-        <h3 className="min-h-10 text-sm font-semibold text-slate-900 md:text-base">{product.name}</h3>
-        <p className="text-lg font-bold text-blue-700 md:text-xl">{product.formattedPrice}</p>
-      </div>
-    </Link>
-  );
+const mapStorefrontProductToProduct = (product: StorefrontProduct): Product => ({
+  id: product.id,
+  name: product.name,
+  slug: product.slug,
+  price: product.price,
+  image: product.image?.trim() ? product.image : "/assets/images/hero/e-hero.png",
+  rating: 0,
+  sold_count: 0,
+  stock: 0,
+  free_shipping: false,
+  category: {
+    id: toFallbackSlug(product.category, "kategori"),
+    name: product.category?.trim() || "Kategori",
+    slug: toFallbackSlug(product.category, "kategori"),
+  },
+  brand: {
+    id: toFallbackSlug(product.brand, "brand"),
+    name: product.brand?.trim() || "Entraverse",
+    slug: toFallbackSlug(product.brand, "brand"),
+  },
+  entraverse_price: product.price,
+  original_price: undefined,
+  discount_percentage: undefined,
+  is_wishlisted: false,
+});
+
+export default function ProductCard({ product }: ProductCardProps) {
+  const normalizedProduct = mapStorefrontProductToProduct(product);
+
+  return <SharedProductCard product={normalizedProduct} />;
 }

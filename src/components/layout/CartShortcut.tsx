@@ -4,8 +4,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ShoppingCart } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCart } from "@/hooks/useCart";
+import { cn } from "@/lib/utils";
 import { formatCurrencyIDR } from "@/lib/utils/formatter";
 
 const panelMotion = {
@@ -30,7 +31,16 @@ const formatVariantSummary = (variants: Record<string, string>): string => {
   return entries.map(([name, value]) => `${name}: ${value}`).join(", ");
 };
 
-export function CartShortcut() {
+const getDiscountPercent = (baseValue: number, discountValue: number): number => {
+  if (baseValue <= 0 || discountValue <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((discountValue / baseValue) * 100)));
+};
+
+type CartShortcutProps = {
+  variant?: "default" | "overlay";
+};
+
+export function CartShortcut({ variant = "default" }: CartShortcutProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const { items, cartCount, refreshCart } = useCart();
 
@@ -61,16 +71,16 @@ export function CartShortcut() {
     };
   }, [open, refreshCart]);
 
-  const subtotal = useMemo(
-    () => items.reduce((acc, item) => acc + item.price * item.quantity, 0),
-    [items]
-  );
-
   return (
     <div ref={rootRef} className="relative">
       <button
         type="button"
-        className="relative rounded-full p-2 text-slate-700 transition-colors hover:text-blue-600"
+        className={cn(
+          "relative rounded-full p-2 transition-[background-color,color,border-color,box-shadow] duration-300",
+          variant === "overlay"
+            ? "border border-white/12 bg-white/[0.08] text-white shadow-[0_12px_30px_rgba(15,23,42,0.12)] hover:bg-white/[0.14]"
+            : "text-slate-700 hover:text-blue-600"
+        )}
         aria-label="Keranjang"
         aria-expanded={open}
         aria-haspopup="menu"
@@ -128,6 +138,12 @@ export function CartShortcut() {
                         </div>
 
                         <div className="min-w-0 flex-1">
+                          {(() => {
+                            const displayLineTotal = (item.displayPrice ?? item.price) * item.quantity;
+                            const itemDiscountPercent = getDiscountPercent(displayLineTotal, item.tradeInValue);
+
+                            return (
+                              <>
                           <div className="flex items-start justify-between gap-2">
                             <p className="line-clamp-2 text-sm font-semibold text-slate-800">{item.name}</p>
                             <div className="shrink-0 text-right">
@@ -139,21 +155,22 @@ export function CartShortcut() {
                           <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
                             {formatVariantSummary(item.variants)}
                           </p>
-                          <p className="mt-1 text-base font-bold text-slate-900">
-                            {formatCurrencyIDR(item.price * item.quantity)}
-                          </p>
+                          <div className="mt-1 flex items-center gap-2">
+                            <p className="text-base font-bold text-slate-900">{formatCurrencyIDR(displayLineTotal)}</p>
+                            {itemDiscountPercent > 0 ? (
+                              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                -{itemDiscountPercent}%
+                              </span>
+                            ) : null}
+                          </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     </li>
                   ))}
                 </ul>
-
-                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">Subtotal</span>
-                    <span className="font-semibold text-slate-900">{formatCurrencyIDR(subtotal)}</span>
-                  </div>
-                </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <Link

@@ -5,6 +5,7 @@ import { MapPin } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAddress } from "@/hooks/useAddress";
+import { cn } from "@/lib/utils";
 
 const panelMotion = {
   hidden: { opacity: 0, scale: 0, y: -10 },
@@ -25,6 +26,7 @@ const panelMotion = {
 type AddressShortcutProps = {
   mode?: "icon" | "pill";
   compact?: boolean;
+  variant?: "default" | "overlay";
 };
 
 const getAddressLabel = (location: string | null): string => {
@@ -35,7 +37,10 @@ const getAddressLabel = (location: string | null): string => {
   return `Dikirim ke ${location}`;
 };
 
-export function AddressShortcut({ mode = "icon" }: AddressShortcutProps) {
+export function AddressShortcut({
+  mode = "icon",
+  variant = "default",
+}: AddressShortcutProps) {
   const [open, setOpen] = useState(false);
   const {
     addresses,
@@ -94,7 +99,12 @@ export function AddressShortcut({ mode = "icon" }: AddressShortcutProps) {
         <button
           type="button"
           onClick={() => setOpen((prev) => !prev)}
-          className="inline-flex h-8 max-w-[220px] items-center gap-1.5 rounded-full bg-blue-50 px-3 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
+          className={cn(
+            "inline-flex h-8 max-w-[220px] items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-[background-color,color,box-shadow] duration-300",
+            variant === "overlay"
+              ? "bg-white/[0.14] text-white shadow-[0_12px_30px_rgba(15,23,42,0.12)] hover:bg-white/[0.2]"
+              : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+          )}
           aria-label="Ubah alamat pengiriman"
           aria-expanded={open}
           aria-haspopup="dialog"
@@ -107,7 +117,12 @@ export function AddressShortcut({ mode = "icon" }: AddressShortcutProps) {
         <button
           type="button"
           onClick={() => setOpen((prev) => !prev)}
-          className="rounded-full p-2 text-slate-700 transition-colors hover:text-blue-600"
+          className={cn(
+            "rounded-full p-2 transition-[background-color,color,border-color] duration-300",
+            variant === "overlay"
+              ? "border border-white/12 bg-white/[0.08] text-white hover:bg-white/[0.14]"
+              : "text-slate-700 hover:text-blue-600"
+          )}
           aria-label="Ubah alamat pengiriman"
           aria-expanded={open}
           aria-haspopup="dialog"
