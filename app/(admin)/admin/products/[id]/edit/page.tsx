@@ -523,8 +523,9 @@ export default function EditProductPage() {
     );
   }
 
-  const storefrontProductHref = product.slug?.trim()
-    ? `/products/${encodeURIComponent(product.slug.trim())}`
+  const productSlug = product?.slug?.trim() ?? "";
+  const storefrontProductHref = productSlug
+    ? `/products/${encodeURIComponent(productSlug)}`
     : null;
 
   return (
