@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   addMockCartItem,
   getMockProduct,
+  listMockActiveBanners,
   listMockBrands,
   listMockCategories,
   listMockProductReviews,
@@ -40,6 +41,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
   if (path.length === 1 && path[0] === "brands") {
     const limit = searchParams.get("limit");
     return json(listMockBrands(limit ? Number(limit) : undefined));
+  }
+
+  if (path.length === 2 && path[0] === "banners" && path[1] === "active") {
+    return json(listMockActiveBanners());
   }
 
   if (path.length === 1 && path[0] === "products") {

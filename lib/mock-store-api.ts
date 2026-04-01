@@ -27,6 +27,20 @@ type MockBrand = {
   logo?: string;
 };
 
+type MockBanner = {
+  id: string;
+  title?: string | null;
+  alt_text?: string | null;
+  image_path: string;
+  image_url: string;
+  link_url?: string | null;
+  order: number;
+  is_active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+  deleted_at?: string | null;
+};
+
 type MockProduct = {
   id: string;
   name: string;
@@ -97,6 +111,35 @@ const BRANDS: MockBrand[] = [
   { id: "brand-jbl", name: "JBL", slug: "jbl" },
   { id: "brand-xiaomi", name: "Xiaomi", slug: "xiaomi" },
   { id: "brand-insta360", name: "Insta360", slug: "insta360" },
+];
+
+const MOCK_BANNERS: MockBanner[] = [
+  {
+    id: "banner-rayban-meta",
+    title: "Ray-Ban Meta Gen 2",
+    alt_text: "Ray-Ban Meta smart glasses collection",
+    image_path: "/assets/images/hero/e-hero.png",
+    image_url: "/assets/images/hero/e-hero.png",
+    link_url: "/products?search=meta",
+    order: 1,
+    is_active: true,
+    created_at: "2026-03-28T09:00:00.000Z",
+    updated_at: "2026-03-28T09:00:00.000Z",
+    deleted_at: null,
+  },
+  {
+    id: "banner-vr-upgrade",
+    title: "Upgrade ke VR Generasi Baru",
+    alt_text: "Meta Quest dan console deals di Entraverse",
+    image_path: "/assets/images/hero/e-hero.png",
+    image_url: "/assets/images/hero/e-hero.png",
+    link_url: "/products?category=vr-headset",
+    order: 2,
+    is_active: true,
+    created_at: "2026-03-29T09:00:00.000Z",
+    updated_at: "2026-03-29T09:00:00.000Z",
+    deleted_at: null,
+  },
 ];
 
 const getCategory = (slug: string) => CATEGORIES.find((item) => item.slug === slug) ?? CATEGORIES[0];
@@ -676,6 +719,14 @@ export const listMockBrands = (limit?: number) => {
     count: rows.length,
   };
 };
+
+export const listMockActiveBanners = () => ({
+  success: true,
+  data: [...MOCK_BANNERS]
+    .filter((banner) => banner.is_active)
+    .sort((left, right) => left.order - right.order),
+  count: MOCK_BANNERS.filter((banner) => banner.is_active).length,
+});
 
 export const listMockProductSuggestions = (search: string, limit = 6) => {
   const result = listMockProducts({
