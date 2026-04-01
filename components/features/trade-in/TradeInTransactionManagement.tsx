@@ -5,16 +5,22 @@ import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 
 import {
   ChevronLeft,
   ChevronRight,
+  Eye,
   Images,
   Loader2,
   PackageSearch,
   RefreshCw,
   Search,
+  Truck,
+  UserRound,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import {
   tradeInTransactionApi,
   type TradeInTransaction,
+  type TradeInTransactionPhoto,
   type TradeInTransactionStatus,
 } from "@/lib/api/trade-in-transactions";
 import { formatCurrencyIDR, formatDateTimeID } from "@/lib/utils/formatter";
@@ -66,7 +72,7 @@ const FULFILLMENT_LABEL: Record<TradeInTransaction["fulfillment_method"], string
 };
 
 const tradeInBodyGridClass =
-  "md:grid-cols-2 xl:grid-cols-[minmax(0,1.02fr)_minmax(0,1.24fr)_220px_210px]";
+  "md:grid-cols-2 xl:grid-cols-[minmax(0,1.02fr)_minmax(0,1.08fr)_minmax(0,0.88fr)_minmax(0,0.88fr)_76px]";
 
 const formatDate = (value: string | null): string => {
   if (!value) return "-";
@@ -103,6 +109,49 @@ const getAccessoryLabel = (transaction: TradeInTransaction): string => {
     .join(", ");
 };
 
+const formatAnswerLabel = (value: string): string =>
+  value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const formatAnswerValue = (value: unknown): string => {
+  if (value == null) return "-";
+  if (typeof value === "boolean") return value ? "Ya" : "Tidak";
+  if (typeof value === "number") return `${value}`;
+  if (typeof value === "string") return value.trim() || "-";
+
+  if (Array.isArray(value)) {
+    const normalized = value
+      .map((item) => formatAnswerValue(item))
+      .filter((item) => item !== "-");
+
+    return normalized.length > 0 ? normalized.join(", ") : "-";
+  }
+
+  if (typeof value === "object") {
+    const normalized = Object.values(value)
+      .map((item) => formatAnswerValue(item))
+      .filter((item) => item !== "-");
+
+    return normalized.length > 0 ? normalized.join(", ") : "-";
+  }
+
+  return String(value);
+};
+
+const getAnswerEntries = (transaction: TradeInTransaction) =>
+  Object.entries(transaction.answers ?? {}).filter(([, value]) => formatAnswerValue(value) !== "-");
+
+const getTrackingText = (transaction: TradeInTransaction): string =>
+  transaction.shipment_tracking_number?.trim() || "Belum ada resi dari pelanggan";
+
+const getCourierText = (transaction: TradeInTransaction): string =>
+  transaction.shipment_courier?.trim() || "Kurir belum diinput, cek dari resi saat tracking";
+
+const zoomLabel = (value: number): string => `${value.toFixed(1)}x`;
+
 export default function TradeInTransactionManagement() {
   const [transactions, setTransactions] = useState<TradeInTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,7 +160,9 @@ export default function TradeInTransactionManagement() {
   const [page, setPage] = useState(1);
   const [reloadKey, setReloadKey] = useState(0);
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const [previewTarget, setPreviewTarget] = useState<TradeInTransaction | null>(null);
+  const [detailTarget, setDetailTarget] = useState<TradeInTransaction | null>(null);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
+  const [photoZoom, setPhotoZoom] = useState(1);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [pagination, setPagination] = useState({
     current_page: 1,
@@ -166,6 +217,11 @@ export default function TradeInTransactionManagement() {
     };
   }, [deferredSearch, page, reloadKey, status]);
 
+  useEffect(() => {
+    setSelectedPhotoIndex(0);
+    setPhotoZoom(1);
+  }, [detailTarget?.id]);
+
   const metrics = useMemo(() => {
     return {
       listed: transactions.length,
@@ -178,6 +234,8 @@ export default function TradeInTransactionManagement() {
   const listStart = pagination.total === 0 ? 0 : (pagination.current_page - 1) * pagination.per_page + 1;
   const listEnd =
     pagination.total === 0 ? 0 : Math.min(pagination.total, listStart + Math.max(transactions.length - 1, 0));
+  const selectedPhoto = detailTarget?.photos[selectedPhotoIndex] ?? detailTarget?.photos[0] ?? null;
+  const answerEntries = detailTarget ? getAnswerEntries(detailTarget) : [];
 
   const handleStatusChange = async (transaction: TradeInTransaction, nextStatus: TradeInTransactionStatus) => {
     setUpdatingId(transaction.id);
@@ -186,8 +244,8 @@ export default function TradeInTransactionManagement() {
     try {
       const updated = await tradeInTransactionApi.updateStatus(transaction.id, { status: nextStatus });
       setTransactions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      if (previewTarget?.id === updated.id) {
-        setPreviewTarget(updated);
+      if (detailTarget?.id === updated.id) {
+        setDetailTarget(updated);
       }
       setNotice({
         tone: "success",
@@ -203,6 +261,53 @@ export default function TradeInTransactionManagement() {
     }
   };
 
+  const openDetail = (transaction: TradeInTransaction) => {
+    setDetailTarget(transaction);
+  };
+
+  const updatePhotoZoom = (nextValue: number) => {
+    setPhotoZoom(Math.min(3, Math.max(1, Number(nextValue.toFixed(2)))));
+  };
+
+  const selectPhoto = (index: number) => {
+    setSelectedPhotoIndex(index);
+    setPhotoZoom(1);
+  };
+
+  const renderPhotoCard = (photo: TradeInTransactionPhoto, index: number, deviceLabel: string) => (
+    <button
+      key={photo.id}
+      type="button"
+      onClick={() => selectPhoto(index)}
+      className={cn(
+        "overflow-hidden rounded-xl border text-left transition",
+        selectedPhoto?.id === photo.id
+          ? "border-blue-300 bg-blue-50 shadow-[0_10px_22px_rgba(59,130,246,0.12)]"
+          : "border-slate-200 bg-white hover:border-slate-300"
+      )}
+    >
+      <div className="relative aspect-[4/3] bg-slate-100">
+        {photo.image_url ? (
+          <Image
+            src={photo.image_url}
+            alt={photo.label ?? deviceLabel}
+            fill
+            className="object-cover"
+            sizes="(max-width: 1024px) 33vw, 180px"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-slate-400">
+            <Images className="h-5 w-5" />
+          </div>
+        )}
+      </div>
+      <div className="space-y-1 px-3 py-3">
+        <p className="text-sm font-semibold text-slate-900">{photo.label ?? "Foto perangkat"}</p>
+        <p className="text-xs text-slate-500">{photo.slot_id ?? "slot-tidak-diketahui"}</p>
+      </div>
+    </button>
+  );
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
       <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_44px_rgba(15,23,42,0.06)] sm:p-8">
@@ -210,11 +315,11 @@ export default function TradeInTransactionManagement() {
           <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-700">Trade-In</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-              Daftar pengajuan trade-in dan foto verifikasi.
+              Daftar pengajuan trade-in dengan detail pesanan yang lebih lengkap.
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-              Tahap pertama ini fokus ke struktur data dan tabel admin. Admin sudah bisa melihat pengajuan trade-in,
-              target produk, foto perangkat, dan memperbarui status review dasar.
+              Admin bisa melihat ringkasan transaksi dari daftar utama, lalu membuka Detail Pesanan untuk cek foto
+              trade-in, resi pelanggan, kelengkapan perangkat, dan catatan verifikasi dalam satu panel.
             </p>
           </div>
 
@@ -307,7 +412,7 @@ export default function TradeInTransactionManagement() {
                 <div>
                   <p className="font-medium text-slate-700">Belum ada transaksi trade-in.</p>
                   <p className="mt-1 text-sm text-slate-500">
-                    Tabel admin sudah siap. Data customer bisa disambungkan pada tahap berikutnya.
+                    Daftar admin siap dipakai. Detail pesanan akan muncul ketika transaksi baru masuk.
                   </p>
                 </div>
               </div>
@@ -391,42 +496,44 @@ export default function TradeInTransactionManagement() {
                           <div className="space-y-2 text-sm text-slate-600">
                             <p className="text-base font-semibold leading-7 text-slate-900">{deviceLabel}</p>
                             <p>
-                              <span className="font-medium text-slate-800">Kondisi:</span> {transaction.physical_condition ?? "-"}
+                              <span className="font-medium text-slate-800">Produk target:</span> {getTargetLabel(transaction)}
                             </p>
                             <p>
-                              <span className="font-medium text-slate-800">Umur:</span> {transaction.device_age ?? "-"}
+                              <span className="font-medium text-slate-800">Fulfillment:</span>{" "}
+                              {FULFILLMENT_LABEL[transaction.fulfillment_method]}
                             </p>
-                            <p>
-                              <span className="font-medium text-slate-800">Servis:</span> {transaction.service_history ?? "-"}
-                            </p>
-                            <p>
-                              <span className="font-medium text-slate-800">Kelengkapan:</span> {getAccessoryLabel(transaction)}
+                            <p className="line-clamp-2">
+                              <span className="font-medium text-slate-800">Catatan customer:</span>{" "}
+                              {transaction.customer_notes ?? "Belum ada catatan"}
                             </p>
                           </div>
                         </section>
 
                         <section className="space-y-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Foto</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                            Foto & Pengiriman
+                          </p>
                           <div className="space-y-3">
-                            <div className="relative h-24 w-24 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-                              {previewImage ? (
-                                <Image src={previewImage} alt={deviceLabel} fill className="object-cover" sizes="96px" />
-                              ) : (
-                                <div className="flex h-full items-center justify-center text-slate-400">
-                                  <Images className="h-5 w-5" />
-                                </div>
-                              )}
+                            <div className="flex items-start gap-3">
+                              <div className="relative h-24 w-24 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                                {previewImage ? (
+                                  <Image src={previewImage} alt={deviceLabel} fill className="object-cover" sizes="96px" />
+                                ) : (
+                                  <div className="flex h-full items-center justify-center text-slate-400">
+                                    <Images className="h-5 w-5" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="space-y-2 text-sm text-slate-600">
+                                <p>{transaction.photo_count} foto tersimpan</p>
+                                <p className="line-clamp-2">
+                                  <span className="font-medium text-slate-800">Resi:</span> {getTrackingText(transaction)}
+                                </p>
+                                <p className="line-clamp-2">
+                                  <span className="font-medium text-slate-800">Kurir:</span> {getCourierText(transaction)}
+                                </p>
+                              </div>
                             </div>
-                            <p className="text-sm text-slate-500">{transaction.photo_count} foto tersimpan</p>
-                            <button
-                              type="button"
-                              disabled={transaction.photos.length === 0}
-                              onClick={() => setPreviewTarget(transaction)}
-                              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              <Images className="h-4 w-4" />
-                              Lihat foto
-                            </button>
                           </div>
                         </section>
 
@@ -441,16 +548,24 @@ export default function TradeInTransactionManagement() {
                               {formatCurrencyIDR(transaction.offered_amount)}
                             </p>
                             <p>
-                              <span className="font-medium text-slate-800">Metode:</span>{" "}
-                              {FULFILLMENT_LABEL[transaction.fulfillment_method]}
-                            </p>
-                            <p>
                               <span className="font-medium text-slate-800">Review:</span> {formatDate(transaction.reviewed_at)}
                             </p>
                             <p>
                               <span className="font-medium text-slate-800">Selesai:</span> {formatDate(transaction.completed_at)}
                             </p>
                           </div>
+                        </section>
+
+                        <section className="flex items-center justify-start xl:justify-end">
+                          <button
+                            type="button"
+                            onClick={() => openDetail(transaction)}
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                            title="Lihat Detail Pesanan"
+                            aria-label={`Lihat Detail Pesanan ${transaction.transaction_number}`}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
                         </section>
                       </div>
                     </div>
@@ -491,79 +606,302 @@ export default function TradeInTransactionManagement() {
         </div>
       </section>
 
-      {previewTarget ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-[28px] bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Preview Foto</p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-950">{previewTarget.transaction_number}</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {previewTarget.customer_name} / {getDeviceLabel(previewTarget) || "Device belum dilabeli"}
+      {detailTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="max-h-[92vh] w-full max-w-7xl overflow-hidden rounded-[30px] bg-white shadow-2xl">
+            <div className="flex flex-col gap-5 border-b border-slate-200 px-6 py-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Detail Pesanan</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-2xl font-semibold text-slate-950">{detailTarget.transaction_number}</h2>
+                  <span className="text-sm text-slate-500">{formatDate(detailTarget.created_at)}</span>
+                </div>
+                <p className="max-w-3xl text-sm leading-6 text-slate-600">
+                  {detailTarget.customer_name} / {getDeviceLabel(detailTarget) || "Device belum dilabeli"} / Target{" "}
+                  {getTargetLabel(detailTarget)}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setPreviewTarget(null)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50"
-                aria-label="Tutup preview foto trade-in"
-              >
-                <X className="h-5 w-5" />
-              </button>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <span
+                  className={cn(
+                    "inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold",
+                    STATUS_BADGE[detailTarget.status]
+                  )}
+                >
+                  {STATUS_LABEL[detailTarget.status]}
+                </span>
+                <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
+                  {FULFILLMENT_LABEL[detailTarget.fulfillment_method]}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDetailTarget(null)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+                  aria-label="Tutup detail pesanan trade-in"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
-            <div className="grid gap-6 overflow-y-auto p-6 lg:grid-cols-[minmax(0,1.2fr)_320px]">
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {previewTarget.photos.map((photo) => (
-                  <article key={photo.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
-                    <div className="relative aspect-[4/3] bg-slate-100">
-                      {photo.image_url ? (
+            <div className="grid max-h-[calc(92vh-104px)] gap-6 overflow-y-auto p-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
+              <div className="space-y-6">
+                <section className="rounded-[28px] border border-slate-200 bg-slate-50/70 p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Foto Produk Trade-In
+                      </p>
+                      <h3 className="mt-2 text-xl font-semibold text-slate-950">
+                        Klik gambar untuk pembesaran, lalu gunakan zoom.
+                      </h3>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updatePhotoZoom(photoZoom - 0.25)}
+                        disabled={!selectedPhoto || photoZoom <= 1}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="Perkecil foto"
+                      >
+                        <ZoomOut className="h-4 w-4" />
+                      </button>
+                      <span className="min-w-14 text-center text-sm font-medium text-slate-700">{zoomLabel(photoZoom)}</span>
+                      <button
+                        type="button"
+                        onClick={() => updatePhotoZoom(photoZoom + 0.25)}
+                        disabled={!selectedPhoto || photoZoom >= 3}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="Perbesar foto"
+                      >
+                        <ZoomIn className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                    <button
+                      type="button"
+                      onClick={() => updatePhotoZoom(photoZoom > 1 ? 1 : 1.75)}
+                      disabled={!selectedPhoto}
+                      className="relative flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-[20px] border border-slate-200 bg-white disabled:cursor-not-allowed"
+                    >
+                      {selectedPhoto?.image_url ? (
                         <Image
-                          src={photo.image_url}
-                          alt={photo.label ?? "Foto trade-in"}
+                          src={selectedPhoto.image_url}
+                          alt={selectedPhoto.label ?? "Foto trade-in"}
                           fill
-                          className="object-cover"
-                          sizes="(max-width: 1280px) 50vw, 33vw"
+                          sizes="(max-width: 1280px) 100vw, 900px"
+                          className={cn(
+                            "object-contain p-5 transition-transform duration-300 ease-out",
+                            photoZoom > 1 ? "cursor-zoom-out" : "cursor-zoom-in"
+                          )}
+                          style={{ transform: `scale(${photoZoom})` }}
                         />
                       ) : (
-                        <div className="flex h-full items-center justify-center text-slate-400">
-                          <Images className="h-8 w-8" />
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-slate-400">
+                          <Images className="h-9 w-9" />
+                          <p className="text-sm text-slate-500">Belum ada foto untuk ditampilkan.</p>
                         </div>
                       )}
+                    </button>
+
+                    {detailTarget.photos.length > 0 ? (
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {detailTarget.photos.map((photo, index) => renderPhotoCard(photo, index, getDeviceLabel(detailTarget)))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                        Belum ada foto trade-in yang tersimpan untuk transaksi ini.
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <section className="rounded-[28px] border border-slate-200 bg-white p-5">
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                        <UserRound className="h-5 w-5" />
+                      </span>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Data Pelanggan</p>
+                        <h3 className="mt-1 text-lg font-semibold text-slate-950">{detailTarget.customer_name}</h3>
+                      </div>
                     </div>
-                    <div className="space-y-1 px-4 py-3">
-                      <p className="text-sm font-semibold text-slate-900">{photo.label ?? "Foto perangkat"}</p>
-                      <p className="text-xs text-slate-500">{photo.slot_id ?? "slot-tidak-diketahui"}</p>
+
+                    <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Email</p>
+                        <p className="text-sm leading-6 text-slate-700">{detailTarget.customer_email ?? "-"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">No. HP</p>
+                        <p className="text-sm leading-6 text-slate-700">{detailTarget.customer_phone ?? "-"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Kota</p>
+                        <p className="text-sm leading-6 text-slate-700">{detailTarget.customer_city ?? "-"}</p>
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Alamat</p>
+                        <p className="whitespace-pre-line text-sm leading-6 text-slate-700">
+                          {detailTarget.customer_address ?? "-"}
+                        </p>
+                      </div>
                     </div>
-                  </article>
-                ))}
+                  </section>
+
+                  <section className="rounded-[28px] border border-slate-200 bg-white p-5">
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
+                        <Truck className="h-5 w-5" />
+                      </span>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Data Produk Trade-In</p>
+                        <h3 className="mt-1 text-lg font-semibold text-slate-950">
+                          {getDeviceLabel(detailTarget) || "Perangkat belum dilabeli"}
+                        </h3>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Brand</p>
+                        <p className="text-sm leading-6 text-slate-700">{detailTarget.device_brand ?? "-"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Model</p>
+                        <p className="text-sm leading-6 text-slate-700">{detailTarget.device_model ?? "-"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Varian</p>
+                        <p className="text-sm leading-6 text-slate-700">{detailTarget.device_variant ?? "-"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Kondisi</p>
+                        <p className="text-sm leading-6 text-slate-700">{detailTarget.physical_condition ?? "-"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Umur</p>
+                        <p className="text-sm leading-6 text-slate-700">{detailTarget.device_age ?? "-"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Servis</p>
+                        <p className="text-sm leading-6 text-slate-700">{detailTarget.service_history ?? "-"}</p>
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Kelengkapan</p>
+                        <p className="text-sm leading-6 text-slate-700">{getAccessoryLabel(detailTarget)}</p>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+
+                {answerEntries.length > 0 ? (
+                  <section className="rounded-[28px] border border-slate-200 bg-white p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Jawaban Tambahan</p>
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      {answerEntries.map(([key, value]) => (
+                        <div key={key} className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                            {formatAnswerLabel(key)}
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-slate-700">{formatAnswerValue(value)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
               </div>
 
-              <aside className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Ringkasan</p>
-                  <div className="mt-3 space-y-2 text-sm text-slate-600">
-                    <p>Target produk: {getTargetLabel(previewTarget)}</p>
-                    <p>Metode fulfillment: {FULFILLMENT_LABEL[previewTarget.fulfillment_method]}</p>
-                    <p>Status saat ini: {STATUS_LABEL[previewTarget.status]}</p>
-                    <p>Estimasi: {formatCurrencyIDR(previewTarget.estimated_amount)}</p>
-                    <p>Offer admin: {formatCurrencyIDR(previewTarget.offered_amount)}</p>
+              <aside className="space-y-5">
+                <section className="rounded-[28px] border border-slate-200 bg-slate-50/80 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Ringkasan Pesanan</p>
+                  <div className="mt-4 space-y-4">
+                    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Produk Target</p>
+                      <p className="mt-2 text-sm font-medium leading-6 text-slate-800">{getTargetLabel(detailTarget)}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        SKU varian: {detailTarget.requested_product_variant_sku ?? "Belum ada"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Nilai Trade-In</p>
+                      <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-slate-950">
+                        {formatCurrencyIDR(detailTarget.estimated_amount)}
+                      </p>
+                      <p className="mt-2 text-sm text-slate-600">
+                        Offer admin: <span className="font-medium text-slate-800">{formatCurrencyIDR(detailTarget.offered_amount)}</span>
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Review Internal</p>
+                      <div className="mt-2 space-y-2 text-sm text-slate-600">
+                        <p>
+                          <span className="font-medium text-slate-800">Reviewer:</span>{" "}
+                          {detailTarget.reviewer?.name ?? "Belum ada reviewer"}
+                        </p>
+                        <p>
+                          <span className="font-medium text-slate-800">Waktu review:</span> {formatDate(detailTarget.reviewed_at)}
+                        </p>
+                        <p>
+                          <span className="font-medium text-slate-800">Selesai:</span> {formatDate(detailTarget.completed_at)}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                </section>
 
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Catatan customer</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    {previewTarget.customer_notes ?? "Belum ada catatan dari customer."}
-                  </p>
-                </div>
+                <section className="rounded-[28px] border border-slate-200 bg-white p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Pengiriman Pelanggan</p>
+                  <div className="mt-4 space-y-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Metode Fulfillment</p>
+                      <p className="mt-2 text-sm font-medium text-slate-800">
+                        {FULFILLMENT_LABEL[detailTarget.fulfillment_method]}
+                      </p>
+                    </div>
 
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Catatan admin</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    {previewTarget.admin_notes ?? "Belum ada catatan admin."}
-                  </p>
-                </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Resi Pelanggan</p>
+                      <p className="mt-2 break-all text-sm font-medium leading-6 text-slate-900">
+                        {getTrackingText(detailTarget)}
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-slate-500">
+                        Gunakan nomor resi ini untuk cek pergerakan kurir dan validasi paket masuk.
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Kurir</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-700">{getCourierText(detailTarget)}</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-[28px] border border-slate-200 bg-white p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Catatan</p>
+                  <div className="mt-4 space-y-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Catatan Customer</p>
+                      <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">
+                        {detailTarget.customer_notes ?? "Belum ada catatan dari customer."}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Catatan Admin</p>
+                      <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">
+                        {detailTarget.admin_notes ?? "Belum ada catatan admin."}
+                      </p>
+                    </div>
+                  </div>
+                </section>
               </aside>
             </div>
           </div>

@@ -216,6 +216,7 @@ export default function ProductTableRow({
   isStatusUpdating = false,
 }: ProductTableRowProps) {
   const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const isOutOfStock = product.stock_status === "out_of_stock";
   const rowStateClass = product.is_featured
     ? "bg-amber-50/50 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.35),0_0_16px_rgba(251,191,36,0.15)]"
     : isExpanded
@@ -234,7 +235,7 @@ export default function ProductTableRow({
             <img
               src={product.photo || "/product-placeholder.svg"}
               alt={product.name}
-              className="h-full w-full object-cover"
+              className={`h-full w-full object-cover transition ${isOutOfStock ? "grayscale opacity-45" : ""}`}
               loading="lazy"
               onError={(event) => {
                 if (event.currentTarget.dataset.fallbackApplied === "1") return;
@@ -242,6 +243,13 @@ export default function ProductTableRow({
                 event.currentTarget.src = "/product-placeholder.svg";
               }}
             />
+            {isOutOfStock ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-500/22">
+                <span className="px-1 text-center text-[8px] font-black uppercase leading-none tracking-[0.16em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.32)]">
+                  Stok Habis
+                </span>
+              </div>
+            ) : null}
           </div>
         </td>
 

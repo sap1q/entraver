@@ -22,7 +22,8 @@ const mapStorefrontProductToProduct = (product: StorefrontProduct): Product => (
   image: product.image?.trim() ? product.image : "/assets/images/hero/e-hero.png",
   rating: 0,
   sold_count: 0,
-  stock: 0,
+  stock: product.stock,
+  stock_status: product.stock_status,
   free_shipping: false,
   category: {
     id: toFallbackSlug(product.category, "kategori"),

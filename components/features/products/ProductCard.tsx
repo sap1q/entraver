@@ -25,6 +25,8 @@ export const ProductCard = ({ product, view = "grid" }: ProductCardProps) => {
   const imageSrc = product.image?.trim() ? product.image : "/assets/images/hero/e-hero.png";
   const displayRating = Number.isFinite(product.rating) ? product.rating : 0;
   const soldLabel = product.sold_count > 0 ? `${product.sold_count}+ terjual` : "0 terjual";
+  const isOutOfStock = product.stock_status === "out_of_stock" || product.stock <= 0;
+  const wishlistButtonClass = "h-9 w-9 rounded-full bg-white/95 shadow-[0_10px_24px_rgba(15,23,42,0.16)] backdrop-blur-sm";
 
   useEffect(() => {
     if (!product.is_wishlisted || hasHydrated) return;
@@ -45,14 +47,6 @@ export const ProductCard = ({ product, view = "grid" }: ProductCardProps) => {
           view === "list" ? "sm:flex" : ""
         )}
       >
-        <WishlistHeartButton
-          active={isWishlisted}
-          pending={wishlistPending}
-          onClick={handleWishlistClick}
-          className="absolute left-auto right-3 top-3 z-30 h-9 w-9"
-          iconClassName="h-5 w-5"
-        />
-
         <div
           className={cn(
             "w-full",
@@ -62,15 +56,28 @@ export const ProductCard = ({ product, view = "grid" }: ProductCardProps) => {
           <div className="rounded-[1.15rem] bg-white px-4 pb-4 pt-5">
             <div
               className={cn(
-                "relative mx-auto aspect-square w-full overflow-hidden",
+                "relative mx-auto aspect-square w-full overflow-hidden rounded-[1.35rem]",
+                isOutOfStock ? "bg-[#d9d9d9]" : "",
                 view === "list" ? "max-w-[12rem]" : "max-w-[11.5rem]"
               )}
             >
+              <div className="absolute right-2 top-2 left-auto bottom-auto z-30">
+                <WishlistHeartButton
+                  active={isWishlisted}
+                  pending={wishlistPending}
+                  onClick={handleWishlistClick}
+                  className={wishlistButtonClass}
+                  iconClassName="h-5 w-5"
+                />
+              </div>
               <Image
                 src={imageSrc}
                 alt={product.name}
                 fill
-                className="object-contain transition-transform duration-500 group-hover:scale-105"
+                className={cn(
+                  "transition-transform duration-500 group-hover:scale-105",
+                  isOutOfStock ? "object-cover grayscale opacity-45" : "object-contain"
+                )}
                 unoptimized
                 sizes={
                   view === "list"
@@ -79,6 +86,18 @@ export const ProductCard = ({ product, view = "grid" }: ProductCardProps) => {
                 }
                 loading="lazy"
               />
+              {isOutOfStock ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-500/24">
+                  <span
+                    className={cn(
+                      "px-4 text-center font-black uppercase leading-[0.9] text-white drop-shadow-[0_4px_18px_rgba(0,0,0,0.3)]",
+                      view === "list" ? "text-[1.7rem] tracking-[0.06em]" : "text-[1.35rem] tracking-[0.04em]"
+                    )}
+                  >
+                    Stok Habis
+                  </span>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

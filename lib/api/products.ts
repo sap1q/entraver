@@ -1,4 +1,6 @@
-import api, { isAxiosError } from "@/lib/axios";
+import { isAxiosError } from "axios";
+import client from "@/lib/api/client";
+import { PRODUCT_ENDPOINTS } from "@/lib/constants";
 import { sumSharedInventoryStockFromVariantRows } from "@/lib/sharedInventory";
 import type {
   ApiSuccessResponse,
@@ -196,11 +198,9 @@ const resolveStockStatus = (
   status: unknown,
   stock: number
 ): ProductDetail["stock_status"] => {
-  if (status === "in_stock" || status === "low_stock" || status === "out_of_stock") {
-    return status;
-  }
-
   if (stock <= 0) return "out_of_stock";
+  if (status === "out_of_stock") return "out_of_stock";
+  if (status === "low_stock") return "low_stock";
   if (stock <= 5) return "low_stock";
   return "in_stock";
 };
@@ -513,7 +513,7 @@ const resolveProductBySlugFromListing = async (slug: string): Promise<JsonRecord
   if (!normalizedSlug) return null;
 
   const fetchRows = async (search?: string): Promise<unknown[]> => {
-    const response = await api.get("/v1/products", {
+    const response = await client.get(PRODUCT_ENDPOINTS.list, {
       params: {
         per_page: 20,
         apply_visible: 1,
@@ -579,7 +579,7 @@ const fetchProductCollection = async (
     trade_in: filters?.trade_in ? 1 : undefined,
   };
 
-  const response = await api.get(endpoint, {
+  const response = await client.get(endpoint, {
     params,
     timeout: 120000,
   });
@@ -609,7 +609,7 @@ export const productsApi = {
 
   getProductBySlug: async (slug: string): Promise<ProductDetail> => {
     try {
-      const response = await api.get(`/v1/products/${slug}`, {
+      const response = await client.get(PRODUCT_ENDPOINTS.detail(slug), {
         timeout: 120000,
       });
       const payload = toObject(response.data);
@@ -643,7 +643,7 @@ export const productsApi = {
     };
 
     try {
-      const response = await api.get(`/v1/products/${productId}/reviews`, {
+      const response = await client.get(PRODUCT_ENDPOINTS.reviews(productId), {
         params,
         timeout: 5000,
       });
@@ -676,7 +676,7 @@ export const productsApi = {
   },
 
   getSearchSuggestions: async (search: string, limit = 6): Promise<ProductSearchSuggestionResponse> => {
-    const response = await api.get("/v1/products/suggestions", {
+    const response = await client.get(PRODUCT_ENDPOINTS.suggestions, {
       params: {
         search,
         limit,
@@ -703,7 +703,7 @@ export const productsApi = {
   },
 
   addToCart: async (productId: string, quantity: number, variant?: Record<string, string>) => {
-    const response = await api.post("/v1/cart/add", {
+    const response = await client.post(PRODUCT_ENDPOINTS.addToCart, {
       product_id: productId,
       quantity,
       variant,
@@ -713,7 +713,7 @@ export const productsApi = {
   },
 
   getCategories: async (options?: { limit?: number; timeout?: number }) => {
-    const response = await api.get("/v1/categories", {
+    const response = await client.get(PRODUCT_ENDPOINTS.categories, {
       params: {
         limit: options?.limit,
       },
@@ -729,7 +729,7 @@ export const productsApi = {
   },
 
   getBrands: async () => {
-    const response = await api.get("/v1/brands");
+    const response = await client.get(PRODUCT_ENDPOINTS.brands);
     const payload = toObject(response.data);
     const rows = Array.isArray(payload.data) ? payload.data : [];
 
@@ -741,7 +741,7 @@ export const productsApi = {
 
   toggleWishlist: async (productId: string, nextIsWishlisted: boolean) => {
     try {
-      const response = await api.post<WishlistToggleResponse>(`/v1/wishlist/toggle/${productId}`);
+      const response = await client.post<WishlistToggleResponse>(PRODUCT_ENDPOINTS.toggleWishlist(productId));
       return response.data;
     } catch (error) {
       if (isAxiosError(error) && (!error.response || [401, 403, 404, 405].includes(error.response.status))) {

@@ -49,3 +49,11 @@ export interface CartActionResult {
   success: boolean;
   message?: string;
 }
+
+export interface CartApiResponse {
+  success: boolean;
+  message?: string;
+  items: CartItem[];
+  item?: CartItem;
+  localOnly?: boolean;
+}

@@ -28,6 +28,8 @@ export type StorefrontProduct = {
   image: string | null;
   brand: string | null;
   category: string | null;
+  stock: number;
+  stock_status: "in_stock" | "low_stock" | "out_of_stock";
 };
 
 export type HeroSlide = {

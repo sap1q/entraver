@@ -120,7 +120,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
 
   if (!product) {
     return (
-      <div className="min-h-screen bg-[#f4f5f7]">
+      <div className="min-h-screen bg-white">
         <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
           <div className="rounded-3xl border border-slate-200 bg-white p-8">
             <h1 className="text-2xl font-semibold text-slate-900">Produk belum bisa ditampilkan</h1>
@@ -141,7 +141,7 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f5f7]">
+    <div className="min-h-screen bg-white">
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <ProductBreadcrumb category={product.category} productName={product.name} />
         <ProductDetailClient product={product} />

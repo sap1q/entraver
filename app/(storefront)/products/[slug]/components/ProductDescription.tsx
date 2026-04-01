@@ -35,7 +35,7 @@ export const ProductDescription = ({ description }: ProductDescriptionProps) => 
   }, [safeDescription]);
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-6">
+    <section className="rounded-3xl border border-transparent bg-white p-6">
       <h2 className="text-3xl font-semibold text-slate-900">Deskripsi Produk</h2>
 
       <div className="relative mt-4">

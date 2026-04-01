@@ -20,24 +20,24 @@ export function BannerSlider({ banners, loading = false }: BannerSliderProps) {
 
   if (loading) {
     return (
-      <div className="overflow-hidden rounded-2xl border border-blue-100 bg-[#eef1f7] shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
         <div className="aspect-[2/1] w-full animate-pulse bg-slate-200" />
-        <div className="h-11 border-t border-blue-100 bg-[#eef1f7]" />
+        <div className="h-11 border-t border-blue-100 bg-white" />
       </div>
     );
   }
 
   if (banners.length === 0) {
     return (
-      <div className="overflow-hidden rounded-2xl border border-blue-100 bg-[#eef1f7] shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
         <div className="aspect-[2/1] w-full bg-slate-50" />
-        <div className="h-11 border-t border-blue-100 bg-[#eef1f7]" />
+        <div className="h-11 border-t border-blue-100 bg-white" />
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-blue-100 bg-[#eef1f7] shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
       <Swiper
         modules={[Navigation, Pagination, Autoplay]}
         loop={banners.length > 1}
@@ -70,7 +70,7 @@ export function BannerSlider({ banners, loading = false }: BannerSliderProps) {
         ))}
       </Swiper>
 
-      <div className="flex min-h-10 items-center justify-center border-t border-blue-100 bg-[#eef1f7] px-4 py-1.5">
+      <div className="flex min-h-10 items-center justify-center border-t border-blue-100 bg-white px-4 py-1.5">
         <div className="inline-flex items-center justify-center gap-1.5">
           <button
             type="button"

@@ -40,9 +40,9 @@ export default function ProductsSection({ products, error }: ProductsSectionProp
             <div className="mt-10 flex justify-center">
               <Link
                 href="/products"
-                className="inline-flex items-center rounded-full bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                className="inline-flex min-w-[17rem] items-center justify-center rounded-xl bg-slate-100 px-8 py-4 text-center text-[1.05rem] font-semibold text-slate-600 transition-colors hover:bg-slate-200 hover:text-slate-800"
               >
-                Cari Lebih Banyak
+                Tampilkan Semua Produk
               </Link>
             </div>
           </>

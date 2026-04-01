@@ -19,16 +19,12 @@ interface ProductInfoProps {
 }
 
 export const ProductInfo = ({ product, selectedPrice, selectedVariants, onVariantChange }: ProductInfoProps) => {
-  const [showSpecifications, setShowSpecifications] = useState(true);
+  const [showSpecifications, setShowSpecifications] = useState(false);
   const specificationRows = useMemo(() => buildProductSpecificationRows(product), [product]);
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_12px_32px_-28px_rgba(15,23,42,0.45)]">
-      <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-orange-700">
-        Ready Stock
-      </span>
-
-      <div className="mt-3 flex items-start justify-between gap-3">
+    <section className="rounded-2xl border border-transparent bg-white p-5 shadow-[0_12px_32px_-28px_rgba(15,23,42,0.45)]">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-semibold leading-tight text-slate-900 md:text-3xl">{product.name}</h1>
 
@@ -98,7 +94,7 @@ export const ProductInfo = ({ product, selectedPrice, selectedVariants, onVarian
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             className="overflow-hidden"
           >
-            <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+            <div className="mt-4 rounded-2xl border border-transparent bg-slate-50/60 p-4">
               <div className="space-y-3">
                 {specificationRows.map((item, index) => (
                   <div

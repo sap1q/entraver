@@ -1,115 +1,33 @@
 import { isAxiosError } from "axios";
-import api from "@/lib/axios";
+import client from "@/lib/api/client";
+import { CHECKOUT_ENDPOINTS, PRODUCT_ENDPOINTS, SHIPPING_ENDPOINTS } from "@/lib/constants";
+import type {
+  CheckoutOrder,
+  CheckoutOrderItem,
+  CheckoutProcessPayload,
+  CheckoutProcessResult,
+  CheckoutShippingOption,
+  CheckoutTradeInTransactionSummary,
+  ProductSnapshot,
+  ShippingCostPayload,
+  ShippingCostResult,
+} from "@/types/checkout.types";
 import type { ProductVariantPricingRow } from "@/types/product.types";
 
+export type {
+  CheckoutOrder,
+  CheckoutOrderItem,
+  CheckoutProcessItemPayload,
+  CheckoutProcessPayload,
+  CheckoutProcessResult,
+  CheckoutShippingOption,
+  CheckoutTradeInTransactionSummary,
+  ProductSnapshot,
+  ShippingCostPayload,
+  ShippingCostResult,
+} from "@/types/checkout.types";
+
 type JsonRecord = Record<string, unknown>;
-
-export type CheckoutShippingOption = {
-  service: string;
-  description: string | null;
-  cost: number;
-  etd: string | null;
-  note: string | null;
-};
-
-export type ShippingCostResult = {
-  courier: string;
-  destinationCityId: string;
-  destinationDistrictId: string | null;
-  itemWeight: number;
-  packagingWeight: number;
-  weight: number;
-  strictMode: boolean;
-  options: CheckoutShippingOption[];
-};
-
-export type ShippingCostPayload = {
-  courier: string;
-  address_id?: string;
-  city_id?: string;
-  district_id?: string;
-  weight?: number;
-  items?: CheckoutProcessItemPayload[];
-};
-
-export type CheckoutProcessItemPayload = {
-  product_id: string;
-  quantity: number;
-  variant_sku?: string;
-  variants?: Record<string, string>;
-  trade_in_enabled?: boolean;
-  trade_in_transaction_id?: string;
-};
-
-export type CheckoutProcessPayload = {
-  address_id?: string;
-  courier?: string;
-  service?: string;
-  notes?: string;
-  trade_in_discount?: number;
-  items: CheckoutProcessItemPayload[];
-};
-
-export type CheckoutOrderItem = {
-  id: string;
-  productId: string;
-  productName: string;
-  variantName: string | null;
-  variantSku: string;
-  quantity: number;
-  unitPrice: number;
-  lineTotal: number;
-};
-
-export type CheckoutOrder = {
-  id: string;
-  orderNumber: string;
-  status: string;
-  paymentStatus: string;
-  subtotal: number;
-  discountAmount: number;
-  shippingCost: number;
-  totalAmount: number;
-  shippingCourier: string | null;
-  shippingService: string | null;
-  shippingEtd: string | null;
-  shippingWeight: number;
-  items: CheckoutOrderItem[];
-};
-
-export type CheckoutTradeInTransactionSummary = {
-  id: string;
-  transactionNumber: string;
-  status: string;
-  tradeInOnly: boolean;
-  estimatedAmount: number;
-  requestedProductName: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-};
-
-export type CheckoutProcessResult = {
-  entryKind: "sales_order" | "trade_in";
-  requiresPayment: boolean;
-  order: CheckoutOrder;
-  tradeInTransactions: CheckoutTradeInTransactionSummary[];
-  snapToken: string;
-  snapRedirectUrl: string | null;
-  midtransClientKey: string;
-  midtransSnapJsUrl: string;
-  shipping: CheckoutShippingOption;
-  shippingWeight: number;
-};
-
-export type ProductSnapshot = {
-  id: string;
-  name: string;
-  price: number;
-  stock: number;
-  weight: number;
-  image: string;
-  variant_pricing: ProductVariantPricingRow[];
-};
 
 const toObject = (value: unknown): JsonRecord => {
   if (!value || typeof value !== "object") return {};
@@ -163,6 +81,10 @@ const mapVariantPricingRow = (raw: unknown): ProductVariantPricingRow | null => 
 };
 
 const extractErrorMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message.trim() !== "") {
+    return error.message;
+  }
+
   if (!isAxiosError(error)) return "Terjadi kesalahan saat memproses checkout.";
 
   const payload = toObject(error.response?.data);
@@ -178,6 +100,14 @@ const extractErrorMessage = (error: unknown): string => {
   if (directMessage) return directMessage;
 
   return "Terjadi kesalahan saat memproses checkout.";
+};
+
+const normalizeError = (err: unknown, fallback: string): never => {
+  if (isAxiosError(err)) {
+    throw new Error(err.response?.data?.message ?? fallback);
+  }
+
+  throw err;
 };
 
 const mapShippingOption = (raw: unknown): CheckoutShippingOption | null => {
@@ -253,7 +183,7 @@ const mapTradeInTransactionSummary = (raw: unknown): CheckoutTradeInTransactionS
 export const checkoutApi = {
   async getShippingCost(payload: ShippingCostPayload): Promise<ShippingCostResult> {
     try {
-      const response = await api.post("/shipping/cost", payload);
+      const response = await client.post(SHIPPING_ENDPOINTS.cost, payload);
       const source = toObject(response.data);
       const data = toObject(source.data);
       const options = Array.isArray(data.options) ? data.options : [];
@@ -271,13 +201,13 @@ export const checkoutApi = {
           .filter((item): item is CheckoutShippingOption => item !== null),
       };
     } catch (error) {
-      throw new Error(extractErrorMessage(error));
+      return normalizeError(error, extractErrorMessage(error));
     }
   },
 
   async processCheckout(payload: CheckoutProcessPayload): Promise<CheckoutProcessResult> {
     try {
-      const response = await api.post("/checkout/process", payload);
+      const response = await client.post(CHECKOUT_ENDPOINTS.process, payload);
       const source = toObject(response.data);
       const data = toObject(source.data);
       const tradeInTransactions = (Array.isArray(data.trade_in_transactions) ? data.trade_in_transactions : [])
@@ -318,13 +248,13 @@ export const checkoutApi = {
         shippingWeight: Math.max(1, Math.round(toNumberValue(data.shipping_weight) || 1)),
       };
     } catch (error) {
-      throw new Error(extractErrorMessage(error));
+      return normalizeError(error, extractErrorMessage(error));
     }
   },
 
   async getProductSnapshot(productId: string): Promise<ProductSnapshot> {
     try {
-      const response = await api.get(`/v1/products/${productId}`);
+      const response = await client.get(PRODUCT_ENDPOINTS.detail(productId));
       const source = toObject(response.data);
       const data = toObject(source.data);
       const inventory = toObject(data.inventory);
@@ -344,8 +274,8 @@ export const checkoutApi = {
           .map(mapVariantPricingRow)
           .filter((item): item is ProductVariantPricingRow => item !== null),
       };
-    } catch {
-      throw new Error("Gagal mengambil data master produk.");
+    } catch (error) {
+      return normalizeError(error, "Gagal mengambil data master produk.");
     }
   },
 };

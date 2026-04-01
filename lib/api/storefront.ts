@@ -218,6 +218,41 @@ const resolveProductPrice = (row: JsonRecord): number => {
   return 0;
 };
 
+const resolveProductStock = (row: JsonRecord): number => {
+  const variantPricing = Array.isArray(row.variant_pricing) ? row.variant_pricing : [];
+  if (variantPricing.length > 0) {
+    const totalVariantStock = variantPricing.reduce((sum, entry) => {
+      const variant = toObject(entry);
+      return sum + Math.max(0, toNumberValue(variant.stock) ?? 0);
+    }, 0);
+
+    if (totalVariantStock > 0) {
+      return totalVariantStock;
+    }
+  }
+
+  return Math.max(
+    0,
+    toNumberValue(row.stock) ??
+      toNumberValue(toObject(row.inventory).total_stock) ??
+      0
+  );
+};
+
+const resolveProductStockStatus = (
+  row: JsonRecord,
+  stock: number
+): StorefrontProduct["stock_status"] => {
+  const status = toStringValue(row.stock_status);
+  if (status === "in_stock" || status === "low_stock" || status === "out_of_stock") {
+    return status;
+  }
+
+  if (stock <= 0) return "out_of_stock";
+  if (stock <= 5) return "low_stock";
+  return "in_stock";
+};
+
 const mapProduct = (raw: unknown, index: number): StorefrontProduct => {
   const row = toObject(raw);
   const id = toStringValue(row.id) ?? `product-${index + 1}`;
@@ -225,6 +260,7 @@ const mapProduct = (raw: unknown, index: number): StorefrontProduct => {
   const slug = toStringValue(row.slug) ?? (slugify(name) || `product-${index + 1}`);
   const price = resolveProductPrice(row);
   const formattedPrice = toStringValue(row.formatted_price) ?? formatCurrency(price);
+  const stock = resolveProductStock(row);
 
   return {
     id,
@@ -235,6 +271,8 @@ const mapProduct = (raw: unknown, index: number): StorefrontProduct => {
     image: resolveProductImage(row),
     brand: toStringValue(row.brand),
     category: toStringValue(row.category),
+    stock,
+    stock_status: resolveProductStockStatus(row, stock),
   };
 };
 

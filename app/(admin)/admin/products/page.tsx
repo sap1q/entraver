@@ -124,6 +124,7 @@ const normalizeStatus = (status: string | null | undefined): ProductVisibilitySt
 const normalizeStockStatus = (stockStatus: string | null | undefined, stock: number): ProductStockStatus => {
   const normalized = String(stockStatus ?? "").trim().toLowerCase();
   if (normalized === "preorder") return "preorder";
+  if (stock <= 0) return "out_of_stock";
   if (normalized === "out_of_stock") return "out_of_stock";
   if (normalized === "in_stock") return "in_stock";
   return stock > 0 ? "in_stock" : "out_of_stock";

@@ -108,7 +108,7 @@ export const OrderSidebar = ({
 
   return (
     <>
-      <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)] lg:sticky lg:top-24">
+      <aside className="rounded-3xl border border-transparent bg-white p-5 shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)] lg:sticky lg:top-24">
         <h2 className="text-2xl font-semibold text-slate-900">Rincian Pesanan</h2>
         <p className={cn("mt-2 text-sm font-semibold", stockInfo.className)}>
           {stockInfo.label}: {availableStock}
@@ -126,13 +126,13 @@ export const OrderSidebar = ({
           </div>
 
           {variantSummary ? (
-            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-slate-700">
+            <div className="rounded-xl border border-transparent bg-slate-50 p-3 text-slate-700">
               <p className="font-semibold">Varian dipilih</p>
               <p className="mt-1 text-xs leading-relaxed">{variantSummary}</p>
             </div>
           ) : null}
 
-          <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-3">
+          <div className="space-y-2 rounded-xl border border-transparent bg-slate-50 p-3">
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Harga</span>
               <span className="font-medium text-slate-800">{formatCurrencyIDR(selectedPrice)}</span>

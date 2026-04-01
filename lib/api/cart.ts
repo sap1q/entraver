@@ -1,36 +1,11 @@
 import { isAxiosError } from "axios";
-import api from "@/lib/axios";
+import client from "@/lib/api/client";
+import { CART_ENDPOINTS } from "@/lib/constants";
+import type { CartApiResponse, CartItem } from "@/types/cart.types";
 
 type JsonRecord = Record<string, unknown>;
 
-export interface CartApiItem {
-  id: string;
-  productId: string;
-  name: string;
-  slug?: string;
-  image: string;
-  price: number;
-  displayPrice: number;
-  variantSku?: string;
-  quantity: number;
-  stock: number;
-  minOrder: number;
-  selected: boolean;
-  variants: Record<string, string>;
-  tradeInEnabled: boolean;
-  tradeInValue: number;
-  tradeInUnitValue: number;
-  tradeInTransactionId?: string;
-  tradeInTransactionNumber?: string;
-}
-
-export interface CartApiResponse {
-  success: boolean;
-  message?: string;
-  items: CartApiItem[];
-  item?: CartApiItem;
-  localOnly?: boolean;
-}
+export type CartApiItem = CartItem;
 
 const CART_PLACEHOLDER_IMAGE = "/assets/images/hero/e-hero.png";
 const CART_API_ENABLED = process.env.NEXT_PUBLIC_ENABLE_CART_API === "true";
@@ -296,6 +271,10 @@ const parseCartResponse = (payload: unknown): CartApiResponse => {
 };
 
 const extractErrorMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message.trim() !== "") {
+    return error.message;
+  }
+
   if (!isAxiosError(error)) return "Gagal memproses keranjang.";
 
   const payload = error.response?.data as unknown;
@@ -311,6 +290,14 @@ const extractErrorMessage = (error: unknown): string => {
   }
 
   return "Gagal memproses keranjang.";
+};
+
+const normalizeError = (err: unknown, fallback: string): never => {
+  if (isAxiosError(err)) {
+    throw new Error(err.response?.data?.message ?? fallback);
+  }
+
+  throw err;
 };
 
 const isEndpointMissingError = (error: unknown): boolean => {
@@ -352,7 +339,7 @@ const requestWithFallback = async <T>(
         lastError = error;
         continue;
       }
-      throw error;
+      return normalizeError(error, "Gagal memproses keranjang.");
     }
   }
 
@@ -377,8 +364,8 @@ export const cartApi = {
   getCart: async (): Promise<CartApiResponse> => {
     try {
       const resolved = await requestWithFallback([
-        () => api.get("/v1/cart"),
-        () => api.get("/v1/cart/items"),
+        () => client.get(CART_ENDPOINTS.list[0]),
+        () => client.get(CART_ENDPOINTS.list[1]),
       ], "getCart");
 
       if (resolved.localOnly || !resolved.data) {
@@ -403,9 +390,9 @@ export const cartApi = {
   ): Promise<CartApiResponse> => {
     try {
       const resolved = await requestWithFallback([
-        () => api.post("/v1/cart/add", { product_id: productId, quantity, variant }),
-        () => api.post("/v1/cart/items", { product_id: productId, quantity, variant }),
-        () => api.post("/v1/cart", { product_id: productId, quantity, variant }),
+        () => client.post(CART_ENDPOINTS.add[0], { product_id: productId, quantity, variant }),
+        () => client.post(CART_ENDPOINTS.add[1], { product_id: productId, quantity, variant }),
+        () => client.post(CART_ENDPOINTS.add[2], { product_id: productId, quantity, variant }),
       ], "addItem");
 
       if (resolved.localOnly || !resolved.data) {
@@ -431,9 +418,9 @@ export const cartApi = {
     try {
       const payload = { item_id: itemId, product_id: productId, quantity };
       const resolved = await requestWithFallback([
-        () => api.patch(`/v1/cart/items/${encodeURIComponent(itemId)}`, { quantity }),
-        () => api.patch(`/v1/cart/${encodeURIComponent(itemId)}`, { quantity }),
-        () => api.patch("/v1/cart/update", payload),
+        () => client.patch(CART_ENDPOINTS.update(itemId)[0], { quantity }),
+        () => client.patch(CART_ENDPOINTS.update(itemId)[1], { quantity }),
+        () => client.patch(CART_ENDPOINTS.updateLegacy, payload),
       ], "updateItemQuantity");
 
       if (resolved.localOnly || !resolved.data) {
@@ -454,10 +441,10 @@ export const cartApi = {
   removeItem: async (itemId: string, productId?: string): Promise<CartApiResponse> => {
     try {
       const resolved = await requestWithFallback([
-        () => api.delete(`/v1/cart/items/${encodeURIComponent(itemId)}`),
-        () => api.delete(`/v1/cart/${encodeURIComponent(itemId)}`),
+        () => client.delete(CART_ENDPOINTS.remove(itemId)[0]),
+        () => client.delete(CART_ENDPOINTS.remove(itemId)[1]),
         () =>
-          api.delete("/v1/cart/remove", {
+          client.delete(CART_ENDPOINTS.removeLegacy, {
             data: { item_id: itemId, product_id: productId },
           }),
       ], "removeItem");

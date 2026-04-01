@@ -123,6 +123,32 @@ body {
     transform 180ms ease;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .best-selling-nav {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%) scale(0.94);
+  }
+
+  .best-selling-nav:disabled {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .best-selling-carousel:hover .best-selling-nav,
+  .best-selling-carousel:focus-within .best-selling-nav {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(-50%) scale(1);
+  }
+
+  .best-selling-carousel:hover .best-selling-nav:disabled,
+  .best-selling-carousel:focus-within .best-selling-nav:disabled {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+}
+
 .best-selling-nav:hover {
   border-color: rgba(96, 114, 148, 0.5);
   background: #ffffff;

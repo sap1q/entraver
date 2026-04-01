@@ -59,16 +59,17 @@ export default function BestSellingProductsCarousel({ products }: BestSellingPro
   };
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-label="Produk terlaris sebelumnya"
-        onClick={() => scrollByCards("prev")}
-        disabled={!canScrollPrev}
-        className="best-selling-nav left-0 md:-left-2 xl:-left-5"
-      >
-        <ChevronLeft className="h-5 w-5 stroke-[1.75]" />
-      </button>
+    <div className="best-selling-carousel relative">
+      {canScrollPrev ? (
+        <button
+          type="button"
+          aria-label="Produk terlaris sebelumnya"
+          onClick={() => scrollByCards("prev")}
+          className="best-selling-nav left-0 md:-left-2 xl:-left-5"
+        >
+          <ChevronLeft className="h-5 w-5 stroke-[1.75]" />
+        </button>
+      ) : null}
 
       <div
         ref={scrollRef}
