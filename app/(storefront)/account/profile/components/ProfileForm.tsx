@@ -25,6 +25,9 @@ interface ProfileFormProps {
   onSubmit: ReturnType<UseFormHandleSubmit<ProfileFormValues>>;
 }
 
+const getErrorMessage = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() !== "" ? value : undefined;
+
 export function ProfileForm({
   register,
   errors,
@@ -61,7 +64,7 @@ export function ProfileForm({
       <ProfileAvatarPicker
         previewUrl={avatarPreview}
         initials={avatarInitials}
-        error={errors.avatar?.message}
+        error={getErrorMessage(errors.avatar?.message)}
         disabled={isSubmitting || isLoadingProfile}
         canRemove={canRemoveAvatar}
         onChange={onAvatarChange}
@@ -75,7 +78,7 @@ export function ProfileForm({
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-12">
         <div className="lg:col-span-6">
-          <FieldShell label="Nama Lengkap" htmlFor="name" error={errors.name?.message}>
+          <FieldShell label="Nama Lengkap" htmlFor="name" error={getErrorMessage(errors.name?.message)}>
             <ProfileTextInput
               id="name"
               placeholder="Masukkan nama lengkap"
@@ -86,7 +89,12 @@ export function ProfileForm({
         </div>
 
         <div className="lg:col-span-6">
-          <FieldShell label="Alamat Email" htmlFor="email" error={errors.email?.message} helperText="Email mengikuti akun login dan tidak bisa diubah dari halaman ini.">
+          <FieldShell
+            label="Alamat Email"
+            htmlFor="email"
+            error={getErrorMessage(errors.email?.message)}
+            helperText="Email mengikuti akun login dan tidak bisa diubah dari halaman ini."
+          >
             <ProfileTextInput
               id="email"
               placeholder="Alamat email"
@@ -99,7 +107,7 @@ export function ProfileForm({
         </div>
 
         <div className="lg:col-span-4">
-          <FieldShell label="No. Telepon" htmlFor="phone" error={errors.phone?.message}>
+          <FieldShell label="No. Telepon" htmlFor="phone" error={getErrorMessage(errors.phone?.message)}>
             <div className="flex overflow-hidden rounded-2xl border border-slate-200 bg-white transition focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
               <span className="inline-flex items-center border-r border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-500">
                 +62
@@ -118,7 +126,7 @@ export function ProfileForm({
         </div>
 
         <div className="lg:col-span-4">
-          <FieldShell label="Jenis Kelamin" htmlFor="gender" error={errors.gender?.message}>
+          <FieldShell label="Jenis Kelamin" htmlFor="gender" error={getErrorMessage(errors.gender?.message)}>
             <ProfileSelect id="gender" disabled={isLoadingProfile || isSubmitting} {...register("gender")}>
               <option value="">Pilih jenis kelamin</option>
               <option value="male">Laki-laki</option>
@@ -129,7 +137,11 @@ export function ProfileForm({
         </div>
 
         <div className="lg:col-span-4">
-          <FieldShell label="Tanggal Lahir" htmlFor="date_of_birth" error={errors.date_of_birth?.message}>
+          <FieldShell
+            label="Tanggal Lahir"
+            htmlFor="date_of_birth"
+            error={getErrorMessage(errors.date_of_birth?.message)}
+          >
             <ProfileTextInput
               id="date_of_birth"
               type="date"
