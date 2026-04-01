@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import type { ReadonlyURLSearchParams } from "next/navigation";
 import type { ProductVariantGroup } from "@/types/product.types";
 import { slugifyValue } from "@/lib/utils/formatter";
 

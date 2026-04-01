@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   AlertTriangle,
-  CheckSquare,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -19,7 +18,6 @@ import {
   RefreshCcw,
   Search,
   ShieldCheck,
-  Square,
   Store,
   Unplug,
   X,
@@ -35,6 +33,7 @@ import {
 import { useMarketplaceConnections } from "@/hooks/useMarketplaceConnections";
 import { useProductSyncStatus } from "@/hooks/useProductSyncStatus";
 import api, { isAxiosError } from "@/lib/axios";
+import { resolveApiOriginUrl } from "@/lib/api-config";
 import { formatDateTimeID } from "@/lib/utils/formatter";
 import { useDebounce } from "@/src/hooks/useDebounce";
 
@@ -99,8 +98,6 @@ type PaginationMeta = {
   total: number;
 };
 
-const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-const API_BASE_URL = RAW_API_URL.replace(/\/api\/?$/i, "");
 const MARKETPLACE_PAGE_SIZE = 25;
 
 const currencyFormatter = new Intl.NumberFormat("id-ID");
@@ -128,8 +125,8 @@ const normalizeImageUrl = (value: unknown): string => {
   const trimmed = value.trim();
   if (!trimmed) return "";
   if (/^(blob:|data:|https?:\/\/)/i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith("/")) return `${API_BASE_URL}${trimmed}`;
-  return `${API_BASE_URL}/storage/products/${trimmed}`;
+  if (trimmed.startsWith("/")) return resolveApiOriginUrl(trimmed);
+  return resolveApiOriginUrl(`/storage/products/${trimmed}`);
 };
 
 const resolvePrimaryPhoto = (product: ApiProduct): string => {
@@ -336,14 +333,6 @@ export default function MarketplaceProdukPage() {
   const [perPage, setPerPage] = useState(MARKETPLACE_PAGE_SIZE);
   const [sortBy, setSortBy] = useState<"product_title" | "total_stock">("product_title");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [bulkMode, setBulkMode] = useState<Record<MarketplaceChannel, boolean>>({
-    tiktok: false,
-    shopee: false,
-  });
-  const [bulkSelection, setBulkSelection] = useState<Record<MarketplaceChannel, string[]>>({
-    tiktok: [],
-    shopee: [],
-  });
   const [connectMenuOpen, setConnectMenuOpen] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{
     active: boolean;
@@ -486,9 +475,6 @@ export default function MarketplaceProdukPage() {
       ),
     []
   );
-  const activeBulkMode = bulkMode[marketplaceTab] === true;
-  const activeBulkSelection = bulkSelection[marketplaceTab] ?? [];
-  const selectedVisibleProducts = visibleProducts.filter((product) => activeBulkSelection.includes(product.id));
   const filteredProducts = useMemo(() => {
     if (quickFilter === "review") {
       return visibleProducts.filter(productNeedsReview);
@@ -507,16 +493,11 @@ export default function MarketplaceProdukPage() {
   );
   const visibleStart = totalProducts > 0 ? (currentPage - 1) * perPage + 1 : 0;
   const visibleEnd = filteredProducts.length > 0 ? Math.min(totalProducts, visibleStart + filteredProducts.length - 1) : 0;
-  const allVisibleSelected = visibleProducts.length > 0 && visibleProducts.every((product) => activeBulkSelection.includes(product.id));
-  const someVisibleSelected = visibleProducts.some((product) => activeBulkSelection.includes(product.id));
-  const syncProgressPercent =
-    syncProgress.total > 0 ? Math.min(100, Math.round((syncProgress.processed / syncProgress.total) * 100)) : 0;
   const activeConnectionStatusLabel = integrationStatusLabelMap[activeConnection.status];
   const activeConnectionStatusClass = integrationStatusClassMap[activeConnection.status];
   const activeSyncLabel = activeConnection.lastOutboundSyncAt
     ? formatDateTimeID(activeConnection.lastOutboundSyncAt)
     : "Belum ada data";
-  const connectionCount = (["tiktok", "shopee"] as MarketplaceChannel[]).filter((channel) => connections[channel].connected).length;
   const channelHealth = useMemo(() => {
     return (["tiktok", "shopee"] as MarketplaceChannel[]).reduce<Record<MarketplaceChannel, {
       needsReview: number;
@@ -598,18 +579,21 @@ export default function MarketplaceProdukPage() {
     (variantId: string) => `${marketplaceTab}:${variantId}`,
     [marketplaceTab]
   );
-  const isVariantConnected = (variant: VariantRow) => {
-    const override = connectedVariants[buildConnectionKey(variant.id)];
-    if (typeof override === "boolean") {
-      return override;
-    }
+  const isVariantConnected = useCallback(
+    (variant: VariantRow) => {
+      const override = connectedVariants[buildConnectionKey(variant.id)];
+      if (typeof override === "boolean") {
+        return override;
+      }
 
-    if (marketplaceTab === "tiktok") {
-      return variant.tiktokMapped;
-    }
+      if (marketplaceTab === "tiktok") {
+        return variant.tiktokMapped;
+      }
 
-    return variant.shopeeMapped;
-  };
+      return variant.shopeeMapped;
+    },
+    [buildConnectionKey, connectedVariants, marketplaceTab]
+  );
 
   const handleAuthorizeMarketplace = useCallback(
     async (channel: MarketplaceChannel) => {
@@ -757,117 +741,6 @@ export default function MarketplaceProdukPage() {
       return nextSortBy;
     });
   }, []);
-
-  const setBulkSelectionForChannel = useCallback((channel: MarketplaceChannel, ids: string[]) => {
-    setBulkSelection((prev) => ({
-      ...prev,
-      [channel]: ids,
-    }));
-  }, []);
-
-  const toggleBulkMode = useCallback(() => {
-    setBulkMode((prev) => ({
-      ...prev,
-      [marketplaceTab]: !prev[marketplaceTab],
-    }));
-
-    setBulkSelectionForChannel(marketplaceTab, []);
-    setConnectMenuOpen(false);
-  }, [marketplaceTab, setBulkSelectionForChannel]);
-
-  const toggleBulkSelectAll = useCallback(() => {
-    if (allVisibleSelected) {
-      setBulkSelectionForChannel(marketplaceTab, []);
-      return;
-    }
-
-    setBulkSelectionForChannel(
-      marketplaceTab,
-      visibleProducts.map((product) => product.id)
-    );
-  }, [allVisibleSelected, marketplaceTab, setBulkSelectionForChannel, visibleProducts]);
-
-  const toggleBulkProduct = useCallback((productId: string) => {
-    setBulkSelection((prev) => {
-      const current = prev[marketplaceTab] ?? [];
-      const next = current.includes(productId)
-        ? current.filter((id) => id !== productId)
-        : [...current, productId];
-
-      return {
-        ...prev,
-        [marketplaceTab]: next,
-      };
-    });
-  }, [marketplaceTab]);
-
-  const handleAutoMapProducts = useCallback(
-    async (mode: "selected" | "all") => {
-      const targetProducts = mode === "selected" ? selectedVisibleProducts : visibleProducts;
-
-      if (targetProducts.length === 0) {
-        setActionError(mode === "selected" ? "Pilih produk marketplace terlebih dahulu." : "Tidak ada produk yang bisa dipetakan.");
-        setConnectMenuOpen(false);
-        return;
-      }
-
-      setBusyChannel(marketplaceTab);
-      setActionError(null);
-      setActionMessage(null);
-      setConnectMenuOpen(false);
-
-      const variantsToConnect = targetProducts.flatMap((product) =>
-        product.variants
-          .filter((variant) => variant.sellerSku && !isVariantConnected(variant))
-          .map((variant) => ({ productId: product.id, variant }))
-      );
-
-      setSyncProgress({
-        active: true,
-        title: "Memetakan produk...",
-        message: "Memulai proses mapping marketplace",
-        processed: 0,
-        total: variantsToConnect.length,
-      });
-
-      if (variantsToConnect.length === 0) {
-        setBusyChannel(null);
-        setActionMessage("Semua varian yang memenuhi syarat sudah termapping.");
-        return;
-      }
-
-      let processed = 0;
-      let mapped = 0;
-
-      for (const entry of variantsToConnect) {
-        try {
-          await connectMarketplaceVariant(marketplaceTab, {
-            productId: entry.productId,
-            variantId: entry.variant.apiVariantId,
-            sellerSku: entry.variant.sellerSku,
-          });
-          mapped += 1;
-        } catch {
-          // lanjutkan varian berikutnya
-        } finally {
-          processed += 1;
-          setSyncProgress({
-            active: true,
-            title: "Memetakan produk...",
-            message: `${processed}/${variantsToConnect.length} varian diproses`,
-            processed,
-            total: variantsToConnect.length,
-          });
-        }
-      }
-
-      setActionMessage(`${mapped} dari ${variantsToConnect.length} varian berhasil dipetakan ke ${selectedChannelLabel}.`);
-      refreshMarketplaceConnections();
-      refreshProducts();
-      setBusyChannel(null);
-    },
-    [isVariantConnected, marketplaceTab, refreshMarketplaceConnections, refreshProducts, selectedChannelLabel, selectedVisibleProducts, visibleProducts]
-  );
 
   const handleDisconnectVariant = useCallback(
     async (productId: string, variant: VariantRow) => {

@@ -15,11 +15,8 @@ import {
   type WarrantyComponent,
   type WarrantyPricingConfig,
 } from "@/lib/warrantyProgram";
+import { resolveApiOriginUrl } from "@/lib/api-config";
 import type { Category } from "@/types/category.types";
-
-const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-const API_BASE_URL = RAW_API_URL.replace(/\/api\/?$/i, "");
-const ABSOLUTE_URL_REGEX = /^https?:\/\//i;
 
 const isRawSvg = (value?: string | null): boolean => {
   if (!value) return false;
@@ -36,15 +33,7 @@ const resolveIconUrl = (value?: string | null): string | null => {
     return `data:image/svg+xml;utf8,${encodeURIComponent(trimmed)}`;
   }
 
-  if (ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
-    return trimmed;
-  }
-
-  if (trimmed.startsWith("/")) {
-    return `${API_BASE_URL}${trimmed}`;
-  }
-
-  return `${API_BASE_URL}/${trimmed.replace(/^\/+/, "")}`;
+  return resolveApiOriginUrl(trimmed);
 };
 
 const createWarrantyId = (): string => {
@@ -82,7 +71,6 @@ export default function CategoryForm({
     () => (values.iconFile ? URL.createObjectURL(values.iconFile) : null),
     [values.iconFile]
   );
-  const [minMarginInput, setMinMarginInput] = useState(() => String(values.min_margin ?? ""));
   const [warrantyInputValues, setWarrantyInputValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -90,10 +78,6 @@ export default function CategoryForm({
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
-
-  useEffect(() => {
-    setMinMarginInput(String(values.min_margin ?? ""));
-  }, [values.min_margin]);
 
   const svgPreview = previewUrl
     ? previewUrl
@@ -210,12 +194,15 @@ export default function CategoryForm({
           <label className="space-y-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Min Margin (%)</span>
             <input
+              key={`${mode}-${category?.id ?? "new"}-min-margin`}
               type="text"
               inputMode="decimal"
-              value={minMarginInput}
+              defaultValue={String(values.min_margin ?? "")}
               onChange={(event) => {
                 const normalized = normalizeDecimalDraft(event.target.value);
-                setMinMarginInput(normalized);
+                if (normalized !== event.target.value) {
+                  event.target.value = normalized;
+                }
                 setField("min_margin", parseDecimalValue(normalized));
               }}
               className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"

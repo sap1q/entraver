@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -72,8 +72,10 @@ export function Header() {
 
   useEffect(() => {
     if (!isTradeInPage) {
-      setIsTouchingTradeInHero(false);
-      return;
+      const frameId = window.requestAnimationFrame(() => {
+        setIsTouchingTradeInHero(false);
+      });
+      return () => window.cancelAnimationFrame(frameId);
     }
 
     const updateHeaderState = () => {
@@ -157,7 +159,9 @@ export function Header() {
               <Menu className="h-5 w-5" strokeWidth={1.8} />
             </button>
 
-            <StorefrontSearchBar variant={useOverlayHeader ? "overlay" : "default"} />
+            <Suspense fallback={null}>
+              <StorefrontSearchBar variant={useOverlayHeader ? "overlay" : "default"} />
+            </Suspense>
           </div>
 
           <div className="flex items-center gap-1 md:gap-2">
@@ -176,7 +180,9 @@ export function Header() {
               <Menu className="h-5 w-5" strokeWidth={1.8} />
             </Link>
 
-            <StorefrontSearchBar compact variant={useOverlayHeader ? "overlay" : "default"} />
+            <Suspense fallback={null}>
+              <StorefrontSearchBar compact variant={useOverlayHeader ? "overlay" : "default"} />
+            </Suspense>
           </div>
         </div>
       </div>

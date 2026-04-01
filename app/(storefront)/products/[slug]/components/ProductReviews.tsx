@@ -23,6 +23,8 @@ const EMPTY_SUMMARY: ProductReviewSummary = {
   distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
 };
 
+const EMPTY_REVIEWS: ProductReview[] = [];
+
 export const ProductReviews = ({
   productId,
   initialSummary,
@@ -82,7 +84,7 @@ export const ProductReviews = ({
   }, [initialSummary, onlyPhotos, productId, shouldRequestRemoteReviews, sort]);
 
   const resolvedSummary = shouldRequestRemoteReviews ? summary : (initialSummary ?? EMPTY_SUMMARY);
-  const resolvedReviews = shouldRequestRemoteReviews ? reviews : [];
+  const resolvedReviews = shouldRequestRemoteReviews ? reviews : EMPTY_REVIEWS;
   const resolvedError = shouldRequestRemoteReviews ? error : null;
 
   const filteredReviews = useMemo(() => {

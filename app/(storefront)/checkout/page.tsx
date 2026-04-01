@@ -128,8 +128,6 @@ export default function CheckoutPage() {
   const [selectedService, setSelectedService] = useState<string>("");
   const [shippingLoading, setShippingLoading] = useState(false);
   const [shippingError, setShippingError] = useState<string | null>(null);
-  const [quotedItemWeight, setQuotedItemWeight] = useState<number | null>(null);
-  const [quotedPackagingWeight, setQuotedPackagingWeight] = useState<number | null>(null);
   const [quotedShippingWeight, setQuotedShippingWeight] = useState<number | null>(null);
   const [shippingStrictMode, setShippingStrictMode] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
@@ -337,8 +335,6 @@ export default function CheckoutPage() {
       setSelectedService("");
       setShippingLoading(false);
       setShippingError(null);
-      setQuotedItemWeight(null);
-      setQuotedPackagingWeight(null);
       setQuotedShippingWeight(null);
       setShippingStrictMode(false);
       return;
@@ -350,8 +346,6 @@ export default function CheckoutPage() {
       setShippingOptions([]);
       setSelectedService("");
       setShippingError(null);
-      setQuotedItemWeight(null);
-      setQuotedPackagingWeight(null);
       setQuotedShippingWeight(null);
       setShippingStrictMode(false);
       return;
@@ -369,8 +363,6 @@ export default function CheckoutPage() {
       })
       .then((result) => {
         if (!active) return;
-        setQuotedItemWeight(result.itemWeight);
-        setQuotedPackagingWeight(result.packagingWeight);
         setQuotedShippingWeight(result.weight);
         setShippingStrictMode(result.strictMode);
         setShippingOptions(result.options);
@@ -384,8 +376,6 @@ export default function CheckoutPage() {
       })
       .catch((error) => {
         if (!active) return;
-        setQuotedItemWeight(null);
-        setQuotedPackagingWeight(null);
         setQuotedShippingWeight(null);
         setShippingStrictMode(false);
         setShippingOptions([]);

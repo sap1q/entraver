@@ -169,7 +169,7 @@ export function useAuth() {
     } finally {
       setLoading(false);
     }
-  }, [clearError, validateLogin]);
+  }, [clearError]);
 
   const login = useCallback(async (credentials: LoginCredentials) => {
     const clientErrors = validateLogin(credentials);
@@ -223,7 +223,7 @@ export function useAuth() {
     } finally {
       setLoading(false);
     }
-  }, [clearError, validateRegister]);
+  }, [clearError, validateLogin]);
 
   const register = useCallback(async (payload: RegisterData) => {
     const clientErrors = validateRegister(payload);
@@ -268,7 +268,7 @@ export function useAuth() {
     } finally {
       setLoading(false);
     }
-  }, [clearError]);
+  }, [clearError, validateRegister]);
 
   const logout = useCallback(async () => {
     setLoading(true);

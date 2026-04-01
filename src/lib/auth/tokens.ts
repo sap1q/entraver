@@ -62,7 +62,7 @@ const getStorageWithKey = (key: string): Storage | null => {
 const readFromAnyStorage = (key: string): string | null => {
   return getStorages()
     .map((storage) => storage.getItem(key))
-    .find((value): value is string => typeof value === "string");
+    .find((value): value is string => typeof value === "string") ?? null;
 };
 
 const removeFromAllStorages = (keys: readonly string[]): void => {

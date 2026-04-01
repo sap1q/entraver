@@ -231,7 +231,6 @@ export function TradeInQuestionClient({
   const [photos, setPhotos] = useState<TradeInPhotoItem[]>([]);
   const [isCheckingLimit, setIsCheckingLimit] = useState(false);
   const [isContinuingOrder, setIsContinuingOrder] = useState(false);
-  const [hasCheckedLimit, setHasCheckedLimit] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -463,7 +462,6 @@ export function TradeInQuestionClient({
     }
 
     setIsCheckingLimit(false);
-    setHasCheckedLimit(false);
   };
 
   const toggleAccessory = (accessoryId: string) => {
@@ -483,7 +481,6 @@ export function TradeInQuestionClient({
 
     checkTimerRef.current = window.setTimeout(() => {
       setIsCheckingLimit(false);
-      setHasCheckedLimit(true);
       checkTimerRef.current = null;
     }, 900);
   };
@@ -507,7 +504,6 @@ export function TradeInQuestionClient({
     setIsContinuingOrder(true);
     setSubmissionError(null);
     setSubmissionInfo(null);
-    setHasCheckedLimit(true);
 
     try {
       const orderedPhotos = TRADE_IN_PHOTO_SLOTS.map((slot) => photos.find((photo) => photo.slotId === slot.id) ?? null)

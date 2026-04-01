@@ -6,6 +6,7 @@ import { ChevronsUpDown, Loader2, Plus } from "lucide-react";
 import { useProductSyncStatus } from "@/hooks/useProductSyncStatus";
 import api, { isAxiosError } from "@/lib/axios";
 import { patchProductStatus } from "@/lib/api/product";
+import { resolveApiOriginUrl } from "@/lib/api-config";
 import { sumSharedInventoryStockFromVariantRows } from "@/lib/sharedInventory";
 import { formatDateTimeID } from "@/lib/utils/formatter";
 import { useDebounce } from "@/src/hooks/useDebounce";
@@ -54,16 +55,13 @@ type PaginationMeta = {
 
 const MASTER_PRODUCT_PAGE_SIZE = 25;
 
-const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-const API_BASE_URL = RAW_API_URL.replace(/\/api\/?$/i, "");
-
 const normalizeImageUrl = (value: unknown): string => {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
   if (!trimmed) return "";
   if (/^(blob:|data:|https?:\/\/)/i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith("/")) return `${API_BASE_URL}${trimmed}`;
-  return `${API_BASE_URL}/storage/products/${trimmed}`;
+  if (trimmed.startsWith("/")) return resolveApiOriginUrl(trimmed);
+  return resolveApiOriginUrl(`/storage/products/${trimmed}`);
 };
 
 const resolvePrimaryPhoto = (product: ApiProduct): string => {

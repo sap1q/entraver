@@ -1,7 +1,6 @@
 "use client";
 
 import type { MouseEventHandler } from "react";
-import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Heart } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,13 +21,6 @@ export function WishlistHeartButton({
   iconClassName,
 }: WishlistHeartButtonProps) {
   const prefersReducedMotion = useReducedMotion();
-  const [burstKey, setBurstKey] = useState(0);
-
-  useEffect(() => {
-    if (active) {
-      setBurstKey((previous) => previous + 1);
-    }
-  }, [active]);
 
   return (
     <motion.button
@@ -46,7 +38,6 @@ export function WishlistHeartButton({
       <AnimatePresence initial={false}>
         {active ? (
           <motion.span
-            key={burstKey}
             className="pointer-events-none absolute inset-0 bg-rose-100/40"
             initial={{ scale: 0.4, opacity: 0.7 }}
             animate={{ scale: 1.8, opacity: 0 }}

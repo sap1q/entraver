@@ -33,6 +33,11 @@ const nextConfig: NextConfig = {
         hostname: "*.jurnal.id",
         pathname: "/**",
       },
+      {
+        protocol: "https",
+        hostname: "api.entraverse.com",
+        pathname: "/**",
+      },
     ],
   },
 };

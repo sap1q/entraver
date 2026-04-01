@@ -4,13 +4,12 @@ import Link from "next/link";
 import { Folder } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { StorefrontCategory } from "@/lib/api/types";
+import { resolveApiOriginUrl } from "@/lib/api-config";
 
 type TradeInCategoryCardProps = {
   category: StorefrontCategory;
 };
 
-const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-const API_ORIGIN = RAW_API_URL.replace(/\/api(?:\/v\d+)?\/?$/i, "");
 const ABSOLUTE_URL_REGEX = /^(https?:\/\/|data:|blob:)/i;
 
 const isRawSvg = (value: string): boolean => {
@@ -22,8 +21,7 @@ const toAbsolute = (value: string): string => {
   const trimmed = value.trim();
   if (!trimmed) return trimmed;
   if (ABSOLUTE_URL_REGEX.test(trimmed)) return trimmed;
-  if (trimmed.startsWith("/")) return `${API_ORIGIN}${trimmed}`;
-  return `${API_ORIGIN}/${trimmed.replace(/^\/+/, "")}`;
+  return resolveApiOriginUrl(trimmed);
 };
 
 const appendCandidate = (target: string[], value: string | null | undefined) => {
@@ -60,7 +58,7 @@ export function TradeInCategoryCard({ category }: TradeInCategoryCardProps) {
 
       const storagePathMatch = absolute.match(/(\/storage\/.+)$/);
       if (storagePathMatch?.[1]) {
-        appendCandidate(candidates, `${API_ORIGIN}${storagePathMatch[1]}`);
+        appendCandidate(candidates, resolveApiOriginUrl(storagePathMatch[1]));
       }
     }
 

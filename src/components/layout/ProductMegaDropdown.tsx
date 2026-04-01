@@ -219,11 +219,12 @@ export function ProductMegaDropdown({
 
     const fetchMegaMenuData = async () => {
       if (megaMenuDataCache) {
-        setCategories(megaMenuDataCache.categories);
-        setHighlights(megaMenuDataCache.highlights);
+        const cachedData = megaMenuDataCache;
+        setCategories(cachedData.categories);
+        setHighlights(cachedData.highlights);
         setActiveCategorySlug((prev) => {
-          if (prev && megaMenuDataCache.categories.some((category) => category.slug === prev)) return prev;
-          return megaMenuDataCache.categories[0]?.slug ?? megaMenuDataCache.highlights[0]?.product.category.slug ?? null;
+          if (prev && cachedData.categories.some((category) => category.slug === prev)) return prev;
+          return cachedData.categories[0]?.slug ?? cachedData.highlights[0]?.product.category.slug ?? null;
         });
         setLoading(false);
         setError(null);

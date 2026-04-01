@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "@/lib/constants";
+import { resolveApiBaseUrl, resolveApiOriginUrl } from "@/lib/api-config";
 import type {
   ApiListResult,
   HeroSlide,
@@ -12,7 +12,6 @@ import type {
 type JsonRecord = Record<string, unknown>;
 
 const REVALIDATE_SECONDS = 60;
-const API_ORIGIN = API_BASE_URL.replace(/\/api(?:\/v\d+)?\/?$/i, "");
 
 const slugify = (value: string): string =>
   value
@@ -65,9 +64,7 @@ const formatCurrency = (value: number): string =>
 
 const toAbsoluteUrl = (value: string): string => {
   const normalized = value.trim();
-  if (/^(https?:\/\/|data:|blob:)/i.test(normalized)) return normalized;
-  if (normalized.startsWith("/")) return `${API_ORIGIN}${normalized}`;
-  return `${API_ORIGIN}/${normalized.replace(/^\/+/, "")}`;
+  return resolveApiOriginUrl(normalized);
 };
 
 const buildApiUrl = (
@@ -75,7 +72,7 @@ const buildApiUrl = (
   query?: Record<string, string | number | boolean | undefined>
 ): string => {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const url = new URL(`${API_BASE_URL}${normalizedPath}`);
+  const url = new URL(resolveApiBaseUrl(normalizedPath));
 
   Object.entries(query ?? {}).forEach(([key, value]) => {
     if (value === undefined || value === null || value === "") return;

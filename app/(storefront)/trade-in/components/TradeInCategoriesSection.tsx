@@ -58,7 +58,13 @@ const resolveTradeInCategories = async (): Promise<StorefrontCategory[]> => {
 
       return left.name.localeCompare(right.name, "id-ID");
     })
-    .map(({ __count: _count, ...category }) => category);
+    .map((category) => ({
+      id: category.id,
+      name: category.name,
+      slug: category.slug,
+      imageUrl: category.imageUrl,
+      imageSvg: category.imageSvg,
+    }));
 };
 
 export function TradeInCategoriesSection() {

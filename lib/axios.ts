@@ -5,15 +5,7 @@ import {
   usesAuthenticatedApi,
 } from "@/src/lib/auth/access";
 import { TokenService } from "@/src/lib/auth/tokens";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-const API_ORIGIN = (() => {
-  try {
-    return new URL(API_BASE_URL).origin;
-  } catch {
-    return "http://127.0.0.1:8000";
-  }
-})();
+import { API_BASE_URL, API_ORIGIN } from "@/lib/api-config";
 
 const CSRF_COOKIE_ENDPOINT = `${API_ORIGIN}/sanctum/csrf-cookie`;
 const CSRF_REFRESH_INTERVAL = 4 * 60 * 60 * 1000;
@@ -25,6 +17,13 @@ let csrfLastFetched = 0;
 
 const usesBearerToken = (url: string): boolean => {
   return usesAuthenticatedApi(url);
+};
+
+const shouldUseCsrfCookie = (url: string): boolean => {
+  if (!url) return false;
+  if (url.includes("/sanctum/csrf-cookie")) return false;
+
+  return false;
 };
 
 const ensureCsrfCookie = async (force = false) => {
@@ -100,7 +99,8 @@ const clearXsrfHeader = (headers: unknown) => {
   const headerNames = [XSRF_HEADER_NAME, XSRF_HEADER_NAME.toLowerCase()];
 
   if ("delete" in headers && typeof headers.delete === "function") {
-    headerNames.forEach((headerName) => headers.delete(headerName));
+    const headersWithDelete = headers as { delete: (headerName: string) => void };
+    headerNames.forEach((headerName) => headersWithDelete.delete(headerName));
     return;
   }
 
@@ -240,6 +240,7 @@ const retryOnCsrfMismatch = async (
     status === 419 &&
     !originalRequest._csrfRetry &&
     ["post", "put", "patch", "delete"].includes(method) &&
+    shouldUseCsrfCookie(requestUrl) &&
     !requestUrl.includes("/sanctum/csrf-cookie")
   ) {
     originalRequest._csrfRetry = true;
@@ -256,7 +257,7 @@ api.interceptors.request.use(
     const method = String(config.method ?? "get").toLowerCase();
     const requestUrl = String(config.url ?? "");
 
-    if (["post", "put", "patch", "delete"].includes(method) && !requestUrl.includes("/sanctum/csrf-cookie")) {
+    if (["post", "put", "patch", "delete"].includes(method) && shouldUseCsrfCookie(requestUrl)) {
       await ensureCsrfCookie();
       syncXsrfHeader(config.headers);
     }
@@ -292,7 +293,7 @@ apiUpload.interceptors.request.use(
     const method = String(config.method ?? "get").toLowerCase();
     const requestUrl = String(config.url ?? "");
 
-    if (["post", "put", "patch", "delete"].includes(method) && !requestUrl.includes("/sanctum/csrf-cookie")) {
+    if (["post", "put", "patch", "delete"].includes(method) && shouldUseCsrfCookie(requestUrl)) {
       await ensureCsrfCookie();
       syncXsrfHeader(config.headers);
     }
