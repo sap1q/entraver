@@ -60,11 +60,11 @@ export function BannerCard({ banner, isFirst = false }: BannerCardProps) {
     return combined.includes("ray-ban") || combined.includes("rayban");
   }, [banner.alt_text, banner.title]);
 
-  const productModels = [
+  const productModels: ReadonlyArray<{ name: string; shiftPercent: number; focal?: boolean }> = [
     { name: "Wayfarer", shiftPercent: 0 },
     { name: "Skyler", shiftPercent: 100, focal: true },
     { name: "Headliner", shiftPercent: 200 },
-  ] as const;
+  ];
 
   const fallbackSource = () => {
     if (useWebpSource) {
