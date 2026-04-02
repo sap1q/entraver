@@ -21,6 +21,17 @@ export const resolveVariantRowPrice = (row: ProductVariantPricingRow): number | 
   return typeof price === "number" ? price : null;
 };
 
+export const resolveVariantRowOfflinePrice = (row: ProductVariantPricingRow): number | null => {
+  const candidates = [
+    row.offline_price,
+    row.entraverse_price,
+    row.tokopedia_price,
+    row.shopee_price,
+  ];
+  const price = candidates.find((value) => typeof value === "number" && Number.isFinite(value));
+  return typeof price === "number" ? price : null;
+};
+
 export const resolveVariantRowWeight = (row: ProductVariantPricingRow): number | null => {
   return typeof row.item_weight === "number" && Number.isFinite(row.item_weight) && row.item_weight > 0
     ? row.item_weight
@@ -75,4 +86,24 @@ export const resolveSelectedProductPrice = (
   if (!exactMatch) return product.price;
 
   return resolveVariantRowPrice(exactMatch) ?? product.price;
+};
+
+export const resolveSelectedProductOfflinePrice = (
+  product: ProductDetail,
+  selectedVariants: Record<string, string>,
+  variantSku?: string | null
+): number => {
+  const exactMatch = resolveSelectedVariantRow(product, selectedVariants, variantSku);
+  if (exactMatch) {
+    return resolveVariantRowOfflinePrice(exactMatch) ?? product.offline_price ?? product.price;
+  }
+
+  const firstVariantWithPrice = (product.variant_pricing ?? []).find(
+    (row) => resolveVariantRowOfflinePrice(row) !== null
+  );
+  if (firstVariantWithPrice) {
+    return resolveVariantRowOfflinePrice(firstVariantWithPrice) ?? product.offline_price ?? product.price;
+  }
+
+  return product.offline_price ?? product.price;
 };

@@ -1,9 +1,10 @@
 import { isAxiosError } from "axios";
-import api from "@/lib/axios";
+import client from "@/lib/api/client";
+import { PRODUCT_ENDPOINTS } from "@/lib/constants";
 
 export const deleteProduct = async (productId: string): Promise<void> => {
   try {
-    await api.delete(`/v1/admin/products/${productId}`);
+    await client.delete(PRODUCT_ENDPOINTS.adminDelete(productId));
   } catch (error) {
     if (isAxiosError(error)) {
       const message =
@@ -33,8 +34,8 @@ export const patchProductStatus = async (
   payload: QuickProductStatusPayload
 ): Promise<Record<string, unknown> | null> => {
   try {
-    const response = await api.patch<QuickProductStatusApiResponse>(
-      `/v1/admin/products/${productId}/status`,
+    const response = await client.patch<QuickProductStatusApiResponse>(
+      PRODUCT_ENDPOINTS.adminStatus(productId),
       payload
     );
     return response.data?.data ?? null;

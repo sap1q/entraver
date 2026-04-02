@@ -41,6 +41,8 @@ export interface AuthPayload {
   token: string;
   token_type: "Bearer";
   admin: Admin;
+  expires_in?: number;
+  refresh_token?: string;
 }
 
 export type AuthResponse = ApiResponse<AuthPayload>;

@@ -1,12 +1,4 @@
-import { API_BASE_URL } from "@/lib/constants";
-
-const API_ORIGIN = (() => {
-  try {
-    return new URL(API_BASE_URL).origin;
-  } catch {
-    return "http://127.0.0.1:8000";
-  }
-})();
+import { resolveApiOriginUrl } from "@/lib/api-config";
 
 const PROFILE_AVATAR_CACHE_KEY = "entraverse_profile_avatar_preview";
 
@@ -16,14 +8,7 @@ export const resolveApiAssetUrl = (value: string | null | undefined): string | n
   const trimmed = value.trim();
   if (!trimmed) return null;
 
-  if (/^(data|blob):/i.test(trimmed)) return trimmed;
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-
-  if (trimmed.startsWith("/")) {
-    return `${API_ORIGIN}${trimmed}`;
-  }
-
-  return `${API_ORIGIN}/${trimmed.replace(/^\/+/, "")}`;
+  return resolveApiOriginUrl(trimmed);
 };
 
 export const getNameInitials = (value: string | null | undefined, fallback = "U"): string => {

@@ -3,14 +3,19 @@
 import { useEffect, useMemo } from "react";
 import {
   Bold,
+  Code2,
   Eraser,
+  Heading1,
   Heading2,
+  Heading3,
   Italic,
   List,
   ListOrdered,
+  Minus,
   Pilcrow,
   Quote,
   Redo2,
+  Strikethrough,
   Sparkles,
   Undo2,
 } from "lucide-react";
@@ -48,7 +53,7 @@ export default function DescriptionEditor({ value, onChange }: DescriptionEditor
     editorProps: {
       attributes: {
         class:
-          "min-h-[200px] outline-none px-4 py-3 text-sm text-slate-700 prose prose-sm max-w-none [&_h2]:my-2 [&_h2]:text-base [&_h2]:font-semibold [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_blockquote]:border-l-4 [&_blockquote]:border-slate-200 [&_blockquote]:pl-3 [&_blockquote]:italic",
+          "min-h-[220px] outline-none px-4 py-3 text-sm text-slate-700 prose prose-slate prose-sm max-w-none [&_h1]:my-3 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:my-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:my-2 [&_h3]:text-base [&_h3]:font-semibold [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_blockquote]:border-l-4 [&_blockquote]:border-slate-200 [&_blockquote]:pl-3 [&_blockquote]:italic [&_pre]:rounded-xl [&_pre]:bg-slate-950 [&_pre]:px-4 [&_pre]:py-3 [&_pre]:text-slate-100 [&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-slate-800 [&_hr]:my-4 [&_hr]:border-slate-200",
       },
     },
     onUpdate: ({ editor: activeEditor }) => {
@@ -93,6 +98,22 @@ export default function DescriptionEditor({ value, onChange }: DescriptionEditor
           </button>
           <button
             type="button"
+            onClick={() => editor?.chain().focus().toggleStrike().run()}
+            className={`${toolbarButtonBase} ${editor?.isActive("strike") ? "border-blue-300 text-blue-600" : ""}`}
+            aria-label="Strike"
+          >
+            <Strikethrough className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => editor?.chain().focus().toggleCode().run()}
+            className={`${toolbarButtonBase} ${editor?.isActive("code") ? "border-blue-300 text-blue-600" : ""}`}
+            aria-label="Inline Code"
+          >
+            <Code2 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             onClick={() => editor?.chain().focus().toggleBulletList().run()}
             className={`${toolbarButtonBase} ${editor?.isActive("bulletList") ? "border-blue-300 text-blue-600" : ""}`}
             aria-label="Bullet List"
@@ -117,6 +138,14 @@ export default function DescriptionEditor({ value, onChange }: DescriptionEditor
           </button>
           <button
             type="button"
+            onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+            className={`${toolbarButtonBase} ${editor?.isActive("heading", { level: 1 }) ? "border-blue-300 text-blue-600" : ""}`}
+            aria-label="Heading 1"
+          >
+            <Heading1 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
             className={`${toolbarButtonBase} ${editor?.isActive("heading", { level: 2 }) ? "border-blue-300 text-blue-600" : ""}`}
             aria-label="Heading 2"
@@ -125,11 +154,35 @@ export default function DescriptionEditor({ value, onChange }: DescriptionEditor
           </button>
           <button
             type="button"
+            onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
+            className={`${toolbarButtonBase} ${editor?.isActive("heading", { level: 3 }) ? "border-blue-300 text-blue-600" : ""}`}
+            aria-label="Heading 3"
+          >
+            <Heading3 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             onClick={() => editor?.chain().focus().toggleBlockquote().run()}
             className={`${toolbarButtonBase} ${editor?.isActive("blockquote") ? "border-blue-300 text-blue-600" : ""}`}
             aria-label="Quote"
           >
             <Quote className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => editor?.chain().focus().toggleCodeBlock().run()}
+            className={`${toolbarButtonBase} ${editor?.isActive("codeBlock") ? "border-blue-300 text-blue-600" : ""}`}
+            aria-label="Code Block"
+          >
+            <Code2 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => editor?.chain().focus().setHorizontalRule().run()}
+            className={toolbarButtonBase}
+            aria-label="Horizontal Rule"
+          >
+            <Minus className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -169,8 +222,9 @@ export default function DescriptionEditor({ value, onChange }: DescriptionEditor
         <EditorContent editor={editor} />
       </div>
       <p className="text-xs text-slate-500">
-        Gunakan toolbar untuk format paragraf, lalu klik <span className="font-semibold">Rapikan</span>. Baris dengan isi hanya{" "}
-        <span className="font-semibold">-</span> akan dianggap sebagai jarak antar paragraf.
+        Gunakan toolbar untuk format paragraf, lalu klik <span className="font-semibold">Rapikan</span> untuk
+        membersihkan format berlebih, termasuk simbol <span className="font-semibold">-</span> yang berdiri sendiri
+        atau awalan <span className="font-semibold">- </span> pada paragraf biasa.
       </p>
     </section>
   );

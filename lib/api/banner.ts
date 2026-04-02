@@ -1,5 +1,5 @@
 import api, { apiUpload, isAxiosError } from "@/lib/axios";
-import { API_BASE_URL } from "@/lib/constants";
+import { resolveApiOriginUrl } from "@/lib/api-config";
 import type {
   Banner,
   BannerApiResponse,
@@ -8,13 +8,10 @@ import type {
 } from "@/lib/api/types/banner.types";
 
 type UnknownRecord = Record<string, unknown>;
-const API_ORIGIN = API_BASE_URL.replace(/\/api(?:\/v\d+)?\/?$/i, "");
 
 const toAbsoluteUrl = (value: string): string => {
   const normalized = value.trim();
-  if (/^(https?:\/\/|data:|blob:)/i.test(normalized)) return normalized;
-  if (normalized.startsWith("/")) return `${API_ORIGIN}${normalized}`;
-  return `${API_ORIGIN}/${normalized.replace(/^\/+/, "")}`;
+  return resolveApiOriginUrl(normalized);
 };
 
 const asObject = (value: unknown): UnknownRecord =>

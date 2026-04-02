@@ -4,6 +4,7 @@ import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { Eye } from "lucide-react";
 import ProductForm from "@/components/features/products/ProductForm";
 import { useProduct, type ProductDetail } from "@/hooks/useProductAdmin";
 import { useProductForm } from "@/hooks/useProductForm";
@@ -16,6 +17,7 @@ import {
   isPersistablePhotoPath,
 } from "@/lib/product-media";
 import { normalizeDescriptionHtml } from "@/lib/description";
+import { normalizeSharedInventoryMatrix, sumSharedInventoryStockFromCombinations } from "@/lib/sharedInventory";
 
 type RawMatrixRow = Record<string, unknown>;
 
@@ -283,6 +285,8 @@ const buildPrefilledState = (product: ProductDetail): ProductFormState => {
     matrix.default = { ...DEFAULT_MATRIX_ROW };
   }
 
+  const normalizedMatrix = normalizeSharedInventoryMatrix(matrix);
+
   const dimensions =
     rawInventory && typeof rawInventory.dimensions_cm === "object" && rawInventory.dimensions_cm !== null
       ? (rawInventory.dimensions_cm as Record<string, unknown>)
@@ -336,7 +340,7 @@ const buildPrefilledState = (product: ProductDetail): ProductFormState => {
     tradeIn: Boolean(product.trade_in),
     photos,
     variants: variantDefinitions,
-    matrix,
+    matrix: normalizedMatrix,
   };
 };
 
@@ -430,7 +434,7 @@ export default function EditProductPage() {
       trade_in: form.tradeIn,
       description: normalizeDescriptionHtml(form.description),
       inventory: {
-        total_stock: variantPricingPayload.reduce((sum, row) => sum + row.stock, 0),
+        total_stock: sumSharedInventoryStockFromCombinations(combinations, matrixData),
         weight: form.inventoryPlan.weight,
         dimensions_cm: {
           length: form.inventoryPlan.length,
@@ -519,6 +523,11 @@ export default function EditProductPage() {
     );
   }
 
+  const productSlug = product?.slug?.trim() ?? "";
+  const storefrontProductHref = productSlug
+    ? `/products/${encodeURIComponent(productSlug)}`
+    : null;
+
   return (
     <div className="mx-auto w-full max-w-7xl">
       <form onSubmit={handleSubmit} className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
@@ -528,6 +537,18 @@ export default function EditProductPage() {
             <p className="mt-1 text-sm text-slate-500">Perbarui detail produk dan varian Anda.</p>
           </div>
           <div className="flex items-center gap-2">
+            {storefrontProductHref ? (
+              <Link
+                href={storefrontProductHref}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                aria-label="Buka halaman detail produk di storefront"
+                title="Buka halaman detail produk di storefront"
+              >
+                <Eye className="h-4 w-4" />
+              </Link>
+            ) : null}
             <Link
               href="/admin/master-produk"
               className="rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-50"

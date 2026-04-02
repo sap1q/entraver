@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
+import { authApi } from "@/lib/api/auth";
+import { persistAuthToken } from "@/lib/axios";
+import { setStoredAdmin } from "@/lib/utils/storage";
 
 type LoginFormValues = {
   email: string;
@@ -9,9 +13,11 @@ type LoginFormValues = {
 };
 
 export default function AdminLoginPage() {
+  const router = useRouter();
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<LoginFormValues>({
     defaultValues: {
@@ -20,15 +26,18 @@ export default function AdminLoginPage() {
     },
   });
 
-  const onSubmit = async (values: LoginFormValues) => {
-    await fetch("http://127.0.0.1:8000/api/v1/admin/login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(values),
-    });
+  const onSubmit = async (values: LoginFormValues): Promise<void> => {
+    try {
+      const response = await authApi.login({ ...values, remember: false });
+      const data = response.data;
+      persistAuthToken(data.token, false, data.expires_in, data.refresh_token);
+      setStoredAdmin(data.admin);
+      router.push("/admin/dashboard");
+    } catch (error) {
+      setError("root", {
+        message: error instanceof Error ? error.message : "Login gagal.",
+      });
+    }
   };
 
   return (
@@ -83,12 +92,16 @@ export default function AdminLoginPage() {
             ) : null}
           </div>
 
+          {errors.root?.message ? (
+            <p className="text-sm text-red-600">{errors.root.message}</p>
+          ) : null}
+
           <button
             type="submit"
             disabled={isSubmitting}
             className="w-full rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            Masuk
+            {isSubmitting ? "Memproses..." : "Masuk"}
           </button>
         </form>
 

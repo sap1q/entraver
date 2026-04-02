@@ -9,6 +9,12 @@ import type {
   VariantDefinition,
 } from "@/types/product";
 import { createInitialProductForm, DEFAULT_MATRIX_ROW } from "@/lib/utils";
+import {
+  buildSharedInventoryKeyFromVariantKey,
+  createSharedInventoryStockMap,
+  normalizeSharedInventoryMatrix,
+  syncSharedInventoryStockForKey,
+} from "@/lib/sharedInventory";
 import { useVariantCalculations } from "@/hooks/useVariantCalculations";
 import {
   PRODUCT_MEDIA_MAX_FILE_SIZE_BYTES,
@@ -57,12 +63,19 @@ const syncMatrixWithVariants = (
   prevMatrix: Record<string, MatrixPricing>,
   defaultItemWeight = 0
 ): Record<string, MatrixPricing> => {
+  const normalizedPrevMatrix = normalizeSharedInventoryMatrix(prevMatrix);
+  const sharedStockMap = createSharedInventoryStockMap(normalizedPrevMatrix);
   const nextMatrix: Record<string, MatrixPricing> = {};
   buildVariantCombinations(variants).forEach((combo) => {
-    const existingRow = prevMatrix[combo.key];
+    const existingRow = normalizedPrevMatrix[combo.key];
+    const sharedStock = sharedStockMap.get(buildSharedInventoryKeyFromVariantKey(combo.key));
     nextMatrix[combo.key] = {
       ...DEFAULT_MATRIX_ROW,
       ...(existingRow ?? {}),
+      stock:
+        existingRow && Number.isFinite(Number(existingRow.stock))
+          ? Math.max(0, Number(existingRow.stock))
+          : Math.max(0, Number(sharedStock) || 0),
       itemWeight:
         existingRow && Number.isFinite(Number(existingRow.itemWeight))
           ? Number(existingRow.itemWeight)
@@ -235,17 +248,33 @@ export function useProductForm() {
 
   const updateField = useCallback((key: string, field: keyof MatrixPricing, value: number | string) => {
     const safeValue = typeof value === "number" ? Math.max(0, value) : value;
-    setForm((prev) => ({
-      ...prev,
-      matrix: {
-        ...prev.matrix,
-        [key]: calculateVariant({
-          ...DEFAULT_MATRIX_ROW,
-          ...(prev.matrix?.[key] ?? {}),
-          [field]: typeof safeValue === "number" && !Number.isFinite(safeValue) ? 0 : safeValue,
-        }),
-      },
-    }));
+    setForm((prev) => {
+      const nextRow = calculateVariant({
+        ...DEFAULT_MATRIX_ROW,
+        ...(prev.matrix?.[key] ?? {}),
+        [field]: typeof safeValue === "number" && !Number.isFinite(safeValue) ? 0 : safeValue,
+      });
+
+      const nextMatrix =
+        field === "stock"
+          ? syncSharedInventoryStockForKey(
+              {
+                ...prev.matrix,
+                [key]: nextRow,
+              },
+              key,
+              Number(nextRow.stock) || 0
+            )
+          : {
+              ...prev.matrix,
+              [key]: nextRow,
+            };
+
+      return {
+        ...prev,
+        matrix: nextMatrix,
+      };
+    });
   }, [calculateVariant]);
 
   const handleImageChange = (slotIndex: number, file: File | null) => {

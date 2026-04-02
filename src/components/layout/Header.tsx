@@ -1,18 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, Search } from "lucide-react";
-import { AddressShortcut } from "@/src/components/layout/AddressShortcut";
+import { usePathname } from "next/navigation";
+import { Menu } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { CartShortcut } from "@/src/components/layout/CartShortcut";
 import { ProfileShortcut } from "@/src/components/layout/ProfileShortcut";
 import { ProductMegaDropdown } from "@/src/components/layout/ProductMegaDropdown";
+import { StorefrontSearchBar } from "@/src/components/layout/StorefrontSearchBar";
 
 export function Header() {
+  const pathname = usePathname();
   const [isMegaMenuOpen, setIsMegaMenuOpen] = useState(false);
+  const [isTouchingTradeInHero, setIsTouchingTradeInHero] = useState(false);
   const headerRef = useRef<HTMLElement | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTradeInPage = pathname === "/trade-in";
+  const useOverlayHeader = isTradeInPage && isTouchingTradeInHero;
 
   const clearCloseTimer = useCallback(() => {
     if (!closeTimerRef.current) return;
@@ -64,10 +70,61 @@ export function Header() {
     };
   }, [closeMegaMenu, isMegaMenuOpen]);
 
+  useEffect(() => {
+    if (!isTradeInPage) {
+      const frameId = window.requestAnimationFrame(() => {
+        setIsTouchingTradeInHero(false);
+      });
+      return () => window.cancelAnimationFrame(frameId);
+    }
+
+    const updateHeaderState = () => {
+      const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
+      const heroSection = document.getElementById("trade-in-hero");
+
+      if (!heroSection) {
+        setIsTouchingTradeInHero(false);
+        return;
+      }
+
+      const heroBounds = heroSection.getBoundingClientRect();
+      setIsTouchingTradeInHero(heroBounds.bottom > headerHeight);
+    };
+
+    updateHeaderState();
+    window.addEventListener("scroll", updateHeaderState, { passive: true });
+    window.addEventListener("resize", updateHeaderState);
+
+    return () => {
+      window.removeEventListener("scroll", updateHeaderState);
+      window.removeEventListener("resize", updateHeaderState);
+    };
+  }, [isTradeInPage]);
+
+  const menuButtonClassName = cn(
+    "hidden h-10 w-10 items-center justify-center rounded-full transition-all duration-300 lg:inline-flex ml-2 md:ml-3 lg:ml-4",
+    useOverlayHeader
+      ? "border border-white/15 bg-white/[0.08] text-white shadow-[0_14px_34px_rgba(15,23,42,0.16)] hover:border-white/30 hover:bg-white/[0.16]"
+      : "border border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+  );
+
+  const mobileMenuButtonClassName = cn(
+    "inline-flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 ml-1 md:ml-2",
+    useOverlayHeader
+      ? "border border-white/15 bg-white/[0.08] text-white shadow-[0_14px_34px_rgba(15,23,42,0.16)] hover:border-white/30 hover:bg-white/[0.16]"
+      : "border border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+  );
+
   return (
     <header
       ref={headerRef}
-      className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/80 shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur-md"
+      className={cn(
+        "top-0 z-50 transition-[background-color,border-color,box-shadow,backdrop-filter] duration-300",
+        isTradeInPage ? "fixed inset-x-0" : "sticky",
+        useOverlayHeader
+          ? "border-b border-white/10 bg-white/[0.04] text-white shadow-none backdrop-blur-[6px]"
+          : "border-b border-slate-200/70 bg-white/80 text-slate-900 shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur-md"
+      )}
     >
       <div className="mx-auto w-full max-w-7xl px-4 md:px-6">
         <div className="flex h-16 items-center justify-between gap-3 md:h-[72px]">
@@ -94,7 +151,7 @@ export function Header() {
                 clearCloseTimer();
                 setIsMegaMenuOpen((previous) => !previous);
               }}
-              className="hidden h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 lg:inline-flex ml-2 md:ml-3 lg:ml-4"
+              className={menuButtonClassName}
               aria-expanded={isMegaMenuOpen}
               aria-haspopup="menu"
               aria-label="Buka menu kategori"
@@ -102,22 +159,14 @@ export function Header() {
               <Menu className="h-5 w-5" strokeWidth={1.8} />
             </button>
 
-            <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3 text-slate-600 transition-colors focus-within:border-blue-300">
-              <AddressShortcut mode="pill" />
-              <span className="h-5 w-px bg-slate-200" aria-hidden />
-              <Search className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.6} />
-              <input
-                aria-label="Cari produk"
-                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-                defaultValue=""
-                placeholder="Cari produk di Entraverse"
-              />
-            </div>
+            <Suspense fallback={null}>
+              <StorefrontSearchBar variant={useOverlayHeader ? "overlay" : "default"} />
+            </Suspense>
           </div>
 
           <div className="flex items-center gap-1 md:gap-2">
-            <CartShortcut />
-            <ProfileShortcut />
+            <CartShortcut variant={useOverlayHeader ? "overlay" : "default"} />
+            <ProfileShortcut variant={useOverlayHeader ? "overlay" : "default"} />
           </div>
         </div>
 
@@ -125,23 +174,15 @@ export function Header() {
           <div className="flex items-center gap-2">
             <Link
               href="/products"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 ml-1 md:ml-2"
+              className={mobileMenuButtonClassName}
               aria-label="Buka kategori produk"
             >
               <Menu className="h-5 w-5" strokeWidth={1.8} />
             </Link>
 
-            <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3 text-slate-600 transition-colors focus-within:border-blue-300">
-              <AddressShortcut mode="pill" compact />
-              <span className="h-4 w-px bg-slate-200" aria-hidden />
-              <Search className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={1.6} />
-              <input
-                aria-label="Cari produk"
-                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-                defaultValue=""
-                placeholder="Cari produk di Entraverse"
-              />
-            </div>
+            <Suspense fallback={null}>
+              <StorefrontSearchBar compact variant={useOverlayHeader ? "overlay" : "default"} />
+            </Suspense>
           </div>
         </div>
       </div>

@@ -17,15 +17,8 @@ export default function CategoriesSection({
   viewAllLink = "/products?view=all",
 }: CategoriesSectionProps) {
   return (
-    <section className="bg-white py-12">
+    <section className="bg-white py-8 md:py-10">
       <div className="mx-auto w-full max-w-7xl px-4 md:px-6">
-        <div className="mb-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Kategori Pilihan</p>
-          <h2 className="mt-2 max-w-3xl text-3xl font-extrabold uppercase leading-[1.08] text-slate-900 md:text-5xl">
-            Experience Beyond Limits
-          </h2>
-        </div>
-
         {error ? (
           <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
             {error}

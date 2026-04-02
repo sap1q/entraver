@@ -7,7 +7,6 @@ import { OrderSidebar } from "./OrderSidebar";
 import { ProductDescription } from "./ProductDescription";
 import { ProductHero } from "./ProductHero";
 import { ProductReviews } from "./ProductReviews";
-import { ProductSpecifications } from "./ProductSpecifications";
 import { resolveSelectedProductPrice, resolveSelectedVariantRow, resolveVariantRowIdentity } from "./productPricing";
 
 interface ProductDetailClientProps {
@@ -20,6 +19,10 @@ export const ProductDetailClient = ({ product }: ProductDetailClientProps) => {
     () => resolveSelectedVariantRow(product, selectedVariants),
     [product, selectedVariants]
   );
+  const selectedStock = useMemo(() => {
+    const stock = selectedVariantRow?.stock;
+    return typeof stock === "number" && Number.isFinite(stock) ? Math.max(0, stock) : Math.max(0, product.stock);
+  }, [product.stock, selectedVariantRow]);
   const selectedVariantSku = useMemo(
     () => (selectedVariantRow ? resolveVariantRowIdentity(selectedVariantRow) : null),
     [selectedVariantRow]
@@ -39,18 +42,21 @@ export const ProductDetailClient = ({ product }: ProductDetailClientProps) => {
             selectedVariants={selectedVariants}
             onVariantChange={updateVariant}
           />
-          <ProductSpecifications product={product} />
-          <ProductDescription description={product.description} />
-          <ProductReviews productId={product.id} initialSummary={product.reviews_summary} />
         </div>
 
-        <div className="space-y-4 lg:col-span-4">
+        <div className="lg:col-span-4 lg:self-start">
           <OrderSidebar
             product={product}
             selectedPrice={selectedPrice}
             selectedVariants={selectedVariants}
+            selectedStock={selectedStock}
             selectedVariantSku={selectedVariantSku}
           />
+        </div>
+
+        <div className="space-y-6 lg:col-span-12">
+          <ProductDescription description={product.description} />
+          <ProductReviews productId={product.id} initialSummary={product.reviews_summary} />
         </div>
       </div>
     </div>

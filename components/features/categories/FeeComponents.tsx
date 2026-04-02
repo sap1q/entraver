@@ -35,13 +35,16 @@ const parseRupiahInput = (value: string): number => {
 };
 
 const normalizePercentInput = (value: string): string => {
-  const normalized = value.replace(",", ".").replace(/[^\d.-]/g, "");
-  if (!normalized || normalized === "-" || normalized === "." || normalized === "-.") {
+  const normalized = value
+    .replace(",", ".")
+    .replace(/[^\d.]/g, "")
+    .replace(/(\..*)\./g, "$1");
+
+  if (!normalized || normalized === ".") {
     return "";
   }
 
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? String(parsed) : "";
+  return normalized;
 };
 
 export default function FeeComponents({ fees, onChange }: FeeComponentsProps) {
@@ -101,11 +104,14 @@ export default function FeeComponents({ fees, onChange }: FeeComponentsProps) {
 
             <div className="space-y-2">
               {(list.length ? list : [createComponent()]).map((item, index) => (
-                <div key={item.id ?? `${channel.key}-${index}`} className="grid gap-2 rounded-xl bg-slate-50 p-3 md:grid-cols-12">
+                <div
+                  key={item.id ?? `${channel.key}-${index}`}
+                  className="grid gap-2 rounded-xl bg-slate-50 p-3 md:grid-cols-[minmax(0,3.2fr)_140px_minmax(0,1.5fr)_110px_110px_140px]"
+                >
                   <input
                     value={item.label}
                     onChange={(event) => updateField(channel.key, index, "label", event.target.value)}
-                    className="md:col-span-4 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                    className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
                     placeholder="Nama komponen"
                     title="Nama komponen biaya"
                   />
@@ -128,13 +134,13 @@ export default function FeeComponents({ fees, onChange }: FeeComponentsProps) {
                         );
                       });
                     }}
-                    className="md:col-span-2 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                    className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
                     title="Pilih jenis nilai"
                   >
                     <option value="percent">%</option>
                     <option value="amount">Rp</option>
                   </select>
-                  <div className="relative md:col-span-2">
+                  <div className="relative">
                     {item.valueType === "amount" ? (
                       <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500">
                         Rp
@@ -163,7 +169,7 @@ export default function FeeComponents({ fees, onChange }: FeeComponentsProps) {
                       title="Nilai biaya (persen atau rupiah)"
                     />
                   </div>
-                  <div className="relative md:col-span-1">
+                  <div className="relative min-w-[110px]">
                     <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500">
                       Rp
                     </span>
@@ -172,12 +178,12 @@ export default function FeeComponents({ fees, onChange }: FeeComponentsProps) {
                       inputMode="numeric"
                       value={formatRupiahInput(item.min ?? 0)}
                       onChange={(event) => updateField(channel.key, index, "min", parseRupiahInput(event.target.value))}
-                      className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-2 text-sm"
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-3 text-sm"
                       placeholder="Min"
                       title="Batas minimum biaya dalam Rupiah"
                     />
                   </div>
-                  <div className="relative md:col-span-1">
+                  <div className="relative min-w-[110px]">
                     <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500">
                       Rp
                     </span>
@@ -186,7 +192,7 @@ export default function FeeComponents({ fees, onChange }: FeeComponentsProps) {
                       inputMode="numeric"
                       value={formatRupiahInput(item.max ?? 0)}
                       onChange={(event) => updateField(channel.key, index, "max", parseRupiahInput(event.target.value))}
-                      className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-2 text-sm"
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-3 text-sm"
                       placeholder="Max"
                       title="Batas maksimum biaya dalam Rupiah"
                     />
@@ -194,7 +200,7 @@ export default function FeeComponents({ fees, onChange }: FeeComponentsProps) {
                   <button
                     type="button"
                     onClick={() => updateFee(channel.key, (items) => items.filter((_, idx) => idx !== index))}
-                    className="md:col-span-2 h-10 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
+                    className="h-10 rounded-lg border border-rose-200 bg-rose-50 px-3 text-rose-600 hover:bg-rose-100"
                     title="Hapus komponen biaya"
                   >
                     <span className="inline-flex items-center gap-1 text-xs font-semibold">

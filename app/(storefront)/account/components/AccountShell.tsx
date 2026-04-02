@@ -33,8 +33,10 @@ export function AccountShell({ title, description, children }: AccountShellProps
           </Link>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-          <AccountSidebar />
+        <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start">
+          <div className="lg:sticky lg:top-20 lg:self-start">
+            <AccountSidebar />
+          </div>
 
           <section className="rounded-[28px] border border-white/70 bg-white p-6 shadow-[0_24px_64px_rgba(15,23,42,0.08)] sm:p-8">
             <div className="mb-8">

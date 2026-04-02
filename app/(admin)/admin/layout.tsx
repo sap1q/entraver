@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -26,7 +27,9 @@ import {
   User,
 } from "lucide-react";
 import { authApi } from "@/lib/api/auth";
-import { removeStoredAdmin, removeToken } from "@/lib/utils/storage";
+import { clearPersistedAuth } from "@/lib/axios";
+import { buildAuthLoginRedirect, getSessionRole, type SessionRole } from "@/src/lib/auth/access";
+import { AUTH_STATE_EVENT_NAME } from "@/src/lib/auth/tokens";
 
 type AdminLayoutProps = {
   children: React.ReactNode;
@@ -57,6 +60,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
 
+  const [authReady, setAuthReady] = useState(false);
+  const [sessionRole, setSessionRole] = useState<SessionRole>("guest");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [productOpen, setProductOpen] = useState(
     pathname.startsWith("/admin/products") ||
@@ -66,12 +71,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const [salesOpen, setSalesOpen] = useState(
     pathname.startsWith("/admin/sales") ||
       pathname.startsWith("/admin/pemesanan") ||
+      pathname.startsWith("/admin/trade-in") ||
       pathname.startsWith("/admin/penawaran") ||
       pathname.startsWith("/admin/penagihan")
   );
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const isCheckingAccess = !authReady || sessionRole !== "admin";
 
   const isProductGroupActive = useMemo(
     () =>
@@ -85,6 +92,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     () =>
       pathname.startsWith("/admin/sales") ||
       pathname.startsWith("/admin/pemesanan") ||
+      pathname.startsWith("/admin/trade-in") ||
       pathname.startsWith("/admin/penawaran") ||
       pathname.startsWith("/admin/penagihan"),
     [pathname]
@@ -99,8 +107,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     } catch {
       // Continue logout flow on frontend.
     } finally {
-      removeToken();
-      removeStoredAdmin();
+      clearPersistedAuth();
       router.push("/auth/login");
       setIsLoggingOut(false);
     }
@@ -114,6 +121,40 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     }`;
 
   const closeMobileSidebar = () => setMobileOpen(false);
+
+  useEffect(() => {
+    const syncSessionRole = () => {
+      setSessionRole(getSessionRole());
+      setAuthReady(true);
+    };
+
+    syncSessionRole();
+    window.addEventListener("storage", syncSessionRole);
+    window.addEventListener(AUTH_STATE_EVENT_NAME, syncSessionRole as EventListener);
+
+    return () => {
+      window.removeEventListener("storage", syncSessionRole);
+      window.removeEventListener(AUTH_STATE_EVENT_NAME, syncSessionRole as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) {
+      return;
+    }
+
+    if (sessionRole === "admin") {
+      return;
+    }
+
+    if (sessionRole === "customer") {
+      router.replace("/");
+      return;
+    }
+
+    const redirectTarget = pathname || "/admin/dashboard";
+    router.replace(buildAuthLoginRedirect(redirectTarget));
+  }, [authReady, pathname, router, sessionRole]);
 
   useEffect(() => {
     if (!profileMenuOpen) return;
@@ -140,6 +181,16 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     };
   }, [profileMenuOpen]);
 
+  if (isCheckingAccess) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F8FAFC]">
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-600 shadow-sm">
+          Memeriksa akses admin...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900">
       <button
@@ -164,15 +215,19 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
-        <div className="border-b border-gray-100 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#EFF6FF] text-[#2563EB]">
-              <Box className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-base font-semibold text-slate-800">Entraverse</p>
-              <p className="text-xs text-slate-500">Admin Panel</p>
-            </div>
+        <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-4">
+          <div className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl border border-[#D7E6FF] bg-[#EFF6FF] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+            <Image
+              src="/assets/images/hero/e-logo.png"
+              alt="Entraverse logo"
+              fill
+              className="object-contain p-1.5"
+              sizes="44px"
+            />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-[17px] font-semibold leading-tight text-slate-800">Entraverse</p>
+            <p className="mt-0.5 text-xs font-medium tracking-[0.08em] text-slate-400">Admin Panel</p>
           </div>
         </div>
 
@@ -265,6 +320,17 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                     ) : null}
                     <ClipboardList className="h-4 w-4" />
                     <span>Pemesanan</span>
+                  </Link>
+                  <Link
+                    href="/admin/trade-in"
+                    onClick={closeMobileSidebar}
+                    className={menuItemClass(pathname.startsWith("/admin/trade-in"))}
+                  >
+                    {pathname.startsWith("/admin/trade-in") ? (
+                      <span className="absolute left-0 top-[calc(50%-12px)] h-6 w-1 rounded-r bg-[#2563EB]" />
+                    ) : null}
+                    <ShoppingBag className="h-4 w-4" />
+                    <span>Trade-In</span>
                   </Link>
                   <Link
                     href="/admin/penawaran"

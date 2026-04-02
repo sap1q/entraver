@@ -18,8 +18,8 @@ const navItems: AccountNavItem[] = [
   },
   {
     label: "Wishlist",
-    match: () => false,
-    disabled: true,
+    href: "/account/wishlist",
+    match: (pathname) => pathname === "/account/wishlist",
   },
   {
     label: "Alamat",

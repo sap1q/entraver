@@ -1,17 +1,8 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import "react-easy-crop/react-easy-crop.css";
 import { MainLayout } from "@/src/components/layout/MainLayout";
+import { SentryBootstrap } from "@/src/components/providers/SentryBootstrap";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Entraverse",
@@ -25,9 +16,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className="antialiased">
+        <SentryBootstrap />
         <MainLayout>{children}</MainLayout>
       </body>
     </html>

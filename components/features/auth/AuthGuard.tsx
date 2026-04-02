@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { getToken } from "@/lib/utils/storage";
 import { authApi } from "@/lib/api/auth";
+import { buildAuthLoginRedirect, getSessionRole } from "@/src/lib/auth/access";
 
 type AuthGuardProps = {
   children: React.ReactNode;
@@ -17,18 +17,22 @@ export default function AuthGuard({ children }: AuthGuardProps) {
 
   useEffect(() => {
     const run = async () => {
-      const token = getToken();
-      if (!token) {
-        const redirect = encodeURIComponent(pathname || "/admin/dashboard");
-        router.replace(`/auth/login?redirect=${redirect}`);
+      const sessionRole = getSessionRole();
+
+      if (sessionRole === "guest") {
+        router.replace(buildAuthLoginRedirect(pathname || "/admin/dashboard"));
+        return;
+      }
+
+      if (sessionRole !== "admin") {
+        router.replace("/");
         return;
       }
 
       try {
         await authApi.getProfile();
       } catch {
-        const redirect = encodeURIComponent(pathname || "/admin/dashboard");
-        router.replace(`/auth/login?redirect=${redirect}`);
+        router.replace(buildAuthLoginRedirect(pathname || "/admin/dashboard"));
         return;
       } finally {
         setIsChecking(false);

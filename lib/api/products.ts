@@ -1,4 +1,7 @@
-import api, { isAxiosError } from "@/lib/axios";
+import { isAxiosError } from "axios";
+import client from "@/lib/api/client";
+import { PRODUCT_ENDPOINTS } from "@/lib/constants";
+import { sumSharedInventoryStockFromVariantRows } from "@/lib/sharedInventory";
 import type {
   ApiSuccessResponse,
   Brand,
@@ -11,6 +14,7 @@ import type {
   ProductReviewDistribution,
   ProductReviewQuery,
   ProductReviewResponse,
+  ProductSearchSuggestionResponse,
   ProductReviewSummary,
   ProductVariantGroup,
   ProductVariantPricingRow,
@@ -194,11 +198,9 @@ const resolveStockStatus = (
   status: unknown,
   stock: number
 ): ProductDetail["stock_status"] => {
-  if (status === "in_stock" || status === "low_stock" || status === "out_of_stock") {
-    return status;
-  }
-
   if (stock <= 0) return "out_of_stock";
+  if (status === "out_of_stock") return "out_of_stock";
+  if (status === "low_stock") return "low_stock";
   if (stock <= 5) return "low_stock";
   return "in_stock";
 };
@@ -304,13 +306,23 @@ const mapProduct = (raw: unknown): Product => {
       ? Math.round(((originalPrice - price) / originalPrice) * 100)
       : undefined);
 
-  const stock = toNumberValue(row.stock) ?? toNumberValue(toObject(row.inventory).total_stock) ?? 0;
+  const stockFromVariants =
+    Array.isArray(row.variant_pricing) && row.variant_pricing.length > 0
+      ? sumSharedInventoryStockFromVariantRows(row.variant_pricing as Array<Record<string, unknown>>)
+      : null;
+  const stock =
+    stockFromVariants ??
+    toNumberValue(row.stock) ??
+    toNumberValue(toObject(row.inventory).total_stock) ??
+    0;
 
   return {
     id: toStringValue(row.id) ?? toStringValue(row.uuid) ?? slug,
     name,
     slug,
     price,
+    offline_price: toNumberValue(row.offline_price) ?? undefined,
+    entraverse_price: toNumberValue(row.entraverse_price) ?? undefined,
     original_price: originalPrice,
     discount_percentage: discountPercentage,
     rating: toNumberValue(row.rating) ?? 0,
@@ -501,7 +513,7 @@ const resolveProductBySlugFromListing = async (slug: string): Promise<JsonRecord
   if (!normalizedSlug) return null;
 
   const fetchRows = async (search?: string): Promise<unknown[]> => {
-    const response = await api.get("/v1/products", {
+    const response = await client.get(PRODUCT_ENDPOINTS.list, {
       params: {
         per_page: 20,
         apply_visible: 1,
@@ -564,14 +576,16 @@ const fetchProductCollection = async (
     categories: toCsvParam(filters?.categories),
     brands: toCsvParam(filters?.brands),
     ratings: toCsvParam(filters?.ratings),
+    trade_in: filters?.trade_in ? 1 : undefined,
   };
 
-  const response = await api.get(endpoint, {
+  const response = await client.get(endpoint, {
     params,
     timeout: 120000,
   });
   const rows = extractProductRows(response.data);
-  const products = rows.map(mapProduct);
+  const filteredRows = filters?.trade_in ? rows.filter((row) => resolveTradeIn(toObject(row))) : rows;
+  const products = filteredRows.map(mapProduct);
   const meta = extractMeta(response.data, products.length);
 
   return {
@@ -595,7 +609,7 @@ export const productsApi = {
 
   getProductBySlug: async (slug: string): Promise<ProductDetail> => {
     try {
-      const response = await api.get(`/v1/products/${slug}`, {
+      const response = await client.get(PRODUCT_ENDPOINTS.detail(slug), {
         timeout: 120000,
       });
       const payload = toObject(response.data);
@@ -629,7 +643,10 @@ export const productsApi = {
     };
 
     try {
-      const response = await api.get(`/v1/products/${productId}/reviews`, { params });
+      const response = await client.get(PRODUCT_ENDPOINTS.reviews(productId), {
+        params,
+        timeout: 5000,
+      });
       const payload = toObject(response.data);
       const rows = Array.isArray(payload.data) ? payload.data : [];
       const reviews = rows.map(mapReview);
@@ -640,7 +657,7 @@ export const productsApi = {
         meta: extractReviewMeta(payload, fallbackSummary, reviews.length),
       };
     } catch (error) {
-      if (isAxiosError(error) && error.response?.status === 404) {
+      if (isAxiosError(error)) {
         return {
           success: true,
           data: [],
@@ -658,8 +675,35 @@ export const productsApi = {
     }
   },
 
+  getSearchSuggestions: async (search: string, limit = 6): Promise<ProductSearchSuggestionResponse> => {
+    const response = await client.get(PRODUCT_ENDPOINTS.suggestions, {
+      params: {
+        search,
+        limit,
+      },
+      timeout: 120000,
+    });
+
+    const payload = toObject(response.data);
+    const rows = extractProductRows(payload);
+    const meta = toObject(payload.meta);
+    const keywords = Array.isArray(meta.keywords)
+      ? meta.keywords
+          .map((item) => toStringValue(item))
+          .filter((item): item is string => Boolean(item))
+      : [];
+
+    return {
+      success: payload.success !== false,
+      data: rows.map(mapProduct),
+      meta: {
+        keywords,
+      },
+    };
+  },
+
   addToCart: async (productId: string, quantity: number, variant?: Record<string, string>) => {
-    const response = await api.post("/v1/cart/add", {
+    const response = await client.post(PRODUCT_ENDPOINTS.addToCart, {
       product_id: productId,
       quantity,
       variant,
@@ -668,9 +712,12 @@ export const productsApi = {
     return response.data as ApiSuccessResponse<unknown>;
   },
 
-  getCategories: async () => {
-    const response = await api.get("/v1/categories", {
-      timeout: 120000,
+  getCategories: async (options?: { limit?: number; timeout?: number }) => {
+    const response = await client.get(PRODUCT_ENDPOINTS.categories, {
+      params: {
+        limit: options?.limit,
+      },
+      timeout: options?.timeout ?? 30000,
     });
     const payload = toObject(response.data);
     const rows = Array.isArray(payload.data) ? payload.data : [];
@@ -682,7 +729,7 @@ export const productsApi = {
   },
 
   getBrands: async () => {
-    const response = await api.get("/v1/brands");
+    const response = await client.get(PRODUCT_ENDPOINTS.brands);
     const payload = toObject(response.data);
     const rows = Array.isArray(payload.data) ? payload.data : [];
 
@@ -692,8 +739,20 @@ export const productsApi = {
     } satisfies ApiSuccessResponse<Brand[]>;
   },
 
-  toggleWishlist: async (productId: string) => {
-    const response = await api.post<WishlistToggleResponse>(`/v1/wishlist/toggle/${productId}`);
-    return response.data;
+  toggleWishlist: async (productId: string, nextIsWishlisted: boolean) => {
+    try {
+      const response = await client.post<WishlistToggleResponse>(PRODUCT_ENDPOINTS.toggleWishlist(productId));
+      return response.data;
+    } catch (error) {
+      if (isAxiosError(error) && (!error.response || [401, 403, 404, 405].includes(error.response.status))) {
+        return {
+          success: true,
+          message: "Wishlist updated locally.",
+          is_wishlisted: nextIsWishlisted,
+        } satisfies WishlistToggleResponse;
+      }
+
+      throw error;
+    }
   },
 };

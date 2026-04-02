@@ -1,179 +1,156 @@
-import {
-  Box,
-  ShoppingCart,
-  Tag,
-  Truck,
-  TrendingUp,
-  Users,
-} from "lucide-react";
+"use client";
 
-const summaryCards = [
+import Link from "next/link";
+import { AlertCircle, ArrowRight, Boxes, ClipboardList, RefreshCcw, Store } from "lucide-react";
+import { useProductSyncStatus } from "@/hooks/useProductSyncStatus";
+import { formatDateTimeID } from "@/lib/utils/formatter";
+
+const dashboardShortcuts = [
   {
-    label: "Total Produk",
-    value: "1,248",
-    trend: "+12.5%",
-    icon: Box,
-    tint: "bg-blue-100 text-blue-600",
+    title: "Master Produk",
+    href: "/admin/master-produk",
+    description: "Tarik data produk dari Mekari Jurnal dan kelola harga dasarnya.",
+    icon: Boxes,
   },
   {
-    label: "Kategori Aktif",
-    value: "84",
-    trend: "+4.1%",
-    icon: Tag,
-    tint: "bg-emerald-100 text-emerald-600",
+    title: "Marketplace Produk",
+    href: "/admin/marketplace-produk",
+    description: "Atur mapping SKU, koneksi akun, dan push ke marketplace.",
+    icon: Store,
   },
   {
-    label: "Penjualan Hari Ini",
-    value: "327",
-    trend: "+8.9%",
-    icon: ShoppingCart,
-    tint: "bg-orange-100 text-orange-600",
+    title: "Pemesanan",
+    href: "/admin/pemesanan",
+    description: "Pantau pesanan, fulfillment, dan status transaksi.",
+    icon: ClipboardList,
   },
   {
-    label: "Vendor Pengiriman",
-    value: "18",
-    trend: "+2.0%",
-    icon: Truck,
-    tint: "bg-violet-100 text-violet-600",
+    title: "Trade-In",
+    href: "/admin/trade-in",
+    description: "Lihat pengajuan trade-in customer beserta foto perangkat.",
+    icon: RefreshCcw,
   },
 ];
 
-const weeklyRevenue = [32, 42, 36, 48, 40, 51, 56];
-const targetSeries = [64, 58, 72, 60, 75, 67, 79];
-const actualSeries = [58, 54, 63, 57, 71, 61, 73];
+const formatSyncValue = (value: string | null): string => {
+  if (!value) return "Belum ada data";
+
+  try {
+    return formatDateTimeID(value);
+  } catch {
+    return value;
+  }
+};
 
 export default function AdminDashboardPage() {
+  const { metrics, loading, error } = useProductSyncStatus();
+
+  const overviewCards = [
+    {
+      label: "Master Products Loaded",
+      value: loading ? "..." : `${metrics.masterProductCount}`,
+      tint: "border-slate-200 bg-slate-50/80 text-slate-700",
+    },
+    {
+      label: "Last Inbound Sync",
+      value: loading ? "Memuat..." : formatSyncValue(metrics.latestInboundSync),
+      tint: "border-blue-100 bg-blue-50/70 text-blue-700",
+    },
+    {
+      label: "Last Outbound Push",
+      value: loading ? "Memuat..." : formatSyncValue(metrics.latestOutboundPush),
+      tint: "border-emerald-100 bg-emerald-50/70 text-emerald-700",
+    },
+    {
+      label: "SKU Belum Termapping",
+      value: loading ? "..." : `${metrics.unmappedSkuCount}`,
+      tint: "border-amber-100 bg-amber-50/70 text-amber-700",
+    },
+  ];
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
-      <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-800 md:text-2xl">
-              Ringkasan Performa
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Snapshot data operasional Entraverse minggu ini.
+      <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_44px_rgba(15,23,42,0.06)] sm:p-8">
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-700">Dashboard</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+              Ringkasan operasional Entraverse.
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
+              Master Produk menjadi sumber data utama dari Jurnal, sedangkan mapping, status sinkronisasi, dan push ke marketplace dikelola dari Marketplace Produk.
             </p>
           </div>
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-100 px-3 py-2 text-sm font-medium text-slate-600"
-          >
-            <TrendingUp className="h-4 w-4 text-emerald-500" />
-            Trend Positif
-          </button>
+
+          <div className="grid gap-3 sm:grid-cols-3 xl:w-[560px]">
+            {dashboardShortcuts.map((item) => {
+              const Icon = item.icon;
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
+                  </div>
+                  <p className="mt-4 text-sm font-semibold text-slate-900">{item.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">{item.description}</p>
+                </Link>
+              );
+            })}
+          </div>
         </div>
       </section>
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {summaryCards.map((card) => {
-          const Icon = card.icon;
-          return (
-            <article
-              key={card.label}
-              className="rounded-xl border border-gray-100 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm text-slate-500">{card.label}</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-800">{card.value}</p>
-                </div>
-                <div className={`rounded-lg p-2 ${card.tint}`}>
-                  <Icon className="h-4 w-4" />
-                </div>
-              </div>
-              <p className="mt-3 text-xs font-medium text-emerald-600">{card.trend} vs minggu lalu</p>
-            </article>
-          );
-        })}
+        {overviewCards.map((card) => (
+          <article key={card.label} className={`rounded-2xl border p-5 shadow-sm ${card.tint}`}>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em]">{card.label}</p>
+            <p className="mt-3 text-2xl font-semibold text-slate-950">{card.value}</p>
+          </article>
+        ))}
       </section>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] xl:col-span-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-800">Revenue 7 Hari</h3>
-            <span className="text-xs text-slate-500">Updated 5 menit lalu</span>
-          </div>
-          <div className="mt-6 flex h-56 items-end justify-between gap-2">
-            {weeklyRevenue.map((height, index) => (
-              <div key={index} className="flex w-full flex-col items-center gap-2">
-                <div
-                  className="w-full rounded-t-md bg-gradient-to-t from-blue-500 to-blue-300"
-                  style={{ height: `${height * 3}px` }}
-                />
-                <span className="text-[11px] text-slate-400">D{index + 1}</span>
-              </div>
-            ))}
-          </div>
-        </article>
+      {metrics.truncated ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          Ringkasan sinkronisasi dihitung dari sebagian data API yang terbaca saat ini.
+        </div>
+      ) : null}
 
-        <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-          <h3 className="text-base font-semibold text-slate-800">Customer Insight</h3>
-          <p className="mt-1 text-xs text-slate-500">Pengunjung dan pembeli aktif</p>
-          <div className="mt-6 space-y-4">
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">Pelanggan Baru</p>
-              <p className="mt-1 flex items-center gap-2 text-lg font-semibold text-slate-800">
-                284
-                <Users className="h-4 w-4 text-blue-500" />
-              </p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">Retensi 30 Hari</p>
-              <p className="mt-1 text-lg font-semibold text-slate-800">72.3%</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">Rasio Repeat Order</p>
-              <p className="mt-1 text-lg font-semibold text-slate-800">41.8%</p>
-            </div>
-          </div>
-        </article>
-      </section>
+      {error ? (
+        <div className="flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{error}</p>
+        </div>
+      ) : null}
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] xl:col-span-2">
-          <h3 className="text-base font-semibold text-slate-800">Target vs Realisasi</h3>
-          <p className="mt-1 text-xs text-slate-500">Perbandingan performa harian</p>
-          <div className="mt-6 grid grid-cols-7 gap-2">
-            {targetSeries.map((target, idx) => (
-              <div key={idx} className="space-y-2 text-center">
-                <div className="mx-auto flex h-40 w-9 items-end gap-1">
-                  <div
-                    className="w-4 rounded-t bg-slate-200"
-                    style={{ height: `${target}px` }}
-                  />
-                  <div
-                    className="w-4 rounded-t bg-blue-500"
-                    style={{ height: `${actualSeries[idx]}px` }}
-                  />
-                </div>
-                <span className="text-[11px] text-slate-400">H{idx + 1}</span>
-              </div>
-            ))}
-          </div>
-        </article>
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-2">
+          <RefreshCcw className="h-5 w-5 text-blue-600" />
+          <h2 className="text-xl font-semibold text-slate-900">Alur Kerja</h2>
+        </div>
 
-        <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-          <h3 className="text-base font-semibold text-slate-800">Top Produk</h3>
-          <div className="mt-4 space-y-3">
-            {[
-              { name: "Printer POS Mini", sold: "214 unit", progress: "82%" },
-              { name: "Scanner Barcode X2", sold: "189 unit", progress: "74%" },
-              { name: "Mesin Kasir Touch", sold: "171 unit", progress: "68%" },
-              { name: "Laci Kasir Pro", sold: "162 unit", progress: "61%" },
-            ].map((item) => (
-              <div key={item.name} className="rounded-lg bg-slate-50 p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-slate-700">{item.name}</p>
-                  <p className="text-xs text-slate-500">{item.sold}</p>
-                </div>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
-                  <div className="h-full rounded-full bg-blue-500" style={{ width: item.progress }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </article>
+        <div className="mt-5 grid gap-4 xl:grid-cols-3">
+          <article className="rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">1. Master Produk</p>
+            <p className="mt-2 text-base font-semibold text-slate-900">Tarik dari Mekari Jurnal</p>
+          </article>
+
+          <article className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">2. Marketplace Produk</p>
+            <p className="mt-2 text-base font-semibold text-slate-900">Mapping SKU dan status koneksi</p>
+          </article>
+
+          <article className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">3. Push Marketplace</p>
+            <p className="mt-2 text-base font-semibold text-slate-900">Dorong perubahan harga dan stok</p>
+          </article>
+        </div>
       </section>
     </div>
   );

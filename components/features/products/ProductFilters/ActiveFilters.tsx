@@ -79,6 +79,15 @@ export const ActiveFilters = () => {
       });
     }
 
+    const tradeIn = getFilterValue("trade_in");
+    if (tradeIn === "1" || tradeIn?.toLowerCase() === "true") {
+      result.push({
+        id: "trade-in",
+        label: "Trade-In",
+        onRemove: () => updateFilters({ trade_in: undefined }),
+      });
+    }
+
     return result;
   }, [getFilterValue, getFilterValues, removeFilterValue, updateFilters]);
 

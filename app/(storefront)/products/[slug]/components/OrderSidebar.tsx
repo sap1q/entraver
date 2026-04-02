@@ -9,12 +9,14 @@ import { QuantitySelector } from "@/components/ui/QuantitySelector";
 import { useCart } from "@/hooks/useCart";
 import { cn } from "@/lib/utils";
 import { formatCurrencyIDR } from "@/lib/utils/formatter";
+import { buildAuthLoginRedirect, hasStorefrontSession } from "@/src/lib/auth/access";
 import type { ProductDetail } from "@/types/product.types";
 
 interface OrderSidebarProps {
   product: ProductDetail;
   selectedPrice: number;
   selectedVariants: Record<string, string>;
+  selectedStock: number;
   selectedVariantSku?: string | null;
 }
 
@@ -24,42 +26,62 @@ const STOCK_STYLE: Record<ProductDetail["stock_status"], { label: string; classN
   out_of_stock: { label: "Stok habis", className: "text-rose-600" },
 };
 
-export const OrderSidebar = ({ product, selectedPrice, selectedVariants, selectedVariantSku }: OrderSidebarProps) => {
+export const OrderSidebar = ({
+  product,
+  selectedPrice,
+  selectedVariants,
+  selectedStock,
+  selectedVariantSku,
+}: OrderSidebarProps) => {
   const router = useRouter();
-  const [quantity, setQuantity] = useState(product.min_order ?? 1);
+  const tradeInAvailable = Boolean(product.trade_in);
+  const minOrder = Math.max(1, product.min_order ?? 1);
+  const availableStock = Math.max(0, selectedStock);
+  const quantityLimit = availableStock > 0 ? Math.min(product.max_order ?? availableStock, availableStock) : 0;
+  const quantityMax = Math.max(minOrder, quantityLimit);
+  const selectedStockStatus: ProductDetail["stock_status"] =
+    availableStock <= 0 ? "out_of_stock" : availableStock <= 5 ? "low_stock" : "in_stock";
+  const [quantity, setQuantity] = useState(minOrder);
   const { addToCart, loading, error } = useCart();
 
-  const stockInfo = STOCK_STYLE[product.stock_status];
-  const outOfStock = product.stock_status === "out_of_stock" || product.stock <= 0;
-  const subtotal = useMemo(() => quantity * selectedPrice, [quantity, selectedPrice]);
+  const stockInfo = STOCK_STYLE[selectedStockStatus];
+  const outOfStock = selectedStockStatus === "out_of_stock" || availableStock < minOrder;
+  const normalizedQuantity = useMemo(() => {
+    if (availableStock <= 0) return minOrder;
+    return Math.min(Math.max(quantity, minOrder), quantityMax);
+  }, [availableStock, minOrder, quantity, quantityMax]);
+  const subtotal = useMemo(
+    () => normalizedQuantity * selectedPrice,
+    [normalizedQuantity, selectedPrice]
+  );
 
   const variantSummary = Object.entries(selectedVariants)
     .map(([name, value]) => `${name}: ${value}`)
     .join(", ");
 
   const handleAddToCart = async () => {
-    await addToCart(product.id, quantity, selectedVariants, {
+    await addToCart(product.id, normalizedQuantity, selectedVariants, {
       name: product.name,
       slug: product.slug,
       image: product.image,
       price: selectedPrice,
       variantSku: selectedVariantSku ?? undefined,
-      stock: product.stock,
-      minOrder: product.min_order ?? 1,
-      tradeInEnabled: Boolean(product.trade_in),
+      stock: availableStock,
+      minOrder,
+      tradeInEnabled: false,
     });
   };
 
   const handleBuyNow = async () => {
-    const result = await addToCart(product.id, quantity, selectedVariants, {
+    const result = await addToCart(product.id, normalizedQuantity, selectedVariants, {
       name: product.name,
       slug: product.slug,
       image: product.image,
       price: selectedPrice,
       variantSku: selectedVariantSku ?? undefined,
-      stock: product.stock,
-      minOrder: product.min_order ?? 1,
-      tradeInEnabled: Boolean(product.trade_in),
+      stock: availableStock,
+      minOrder,
+      tradeInEnabled: false,
     });
     if (result.success) {
       router.push("/checkout");
@@ -67,49 +89,57 @@ export const OrderSidebar = ({ product, selectedPrice, selectedVariants, selecte
   };
 
   const handleTradeIn = () => {
-    const params = new URLSearchParams({
-      product_id: product.id,
-      product_slug: product.slug,
-      product_name: product.name,
-    });
+    const params = new URLSearchParams();
 
-    router.push(`/trade-in?${params.toString()}`);
+    if (selectedVariantSku) {
+      params.set("variant_sku", selectedVariantSku);
+    }
+
+    const query = params.toString();
+    const tradeInPath = query ? `/trade-in/question/${product.slug}?${query}` : `/trade-in/question/${product.slug}`;
+
+    if (!hasStorefrontSession()) {
+      router.push(buildAuthLoginRedirect(tradeInPath));
+      return;
+    }
+
+    router.push(tradeInPath);
   };
 
   return (
     <>
-      <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)] lg:sticky lg:top-24">
+      <aside className="rounded-3xl border border-transparent bg-white p-5 shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)] lg:sticky lg:top-24">
         <h2 className="text-2xl font-semibold text-slate-900">Rincian Pesanan</h2>
         <p className={cn("mt-2 text-sm font-semibold", stockInfo.className)}>
-          {stockInfo.label}: {product.stock}
+          {stockInfo.label}: {availableStock}
         </p>
 
         <div className="mt-5 space-y-4 text-sm">
           <div>
             <p className="mb-2 font-semibold text-slate-700">Jumlah</p>
             <QuantitySelector
-              value={quantity}
+              value={normalizedQuantity}
               onChange={setQuantity}
-              min={product.min_order ?? 1}
-              max={Math.max(product.max_order ?? product.stock, product.min_order ?? 1)}
+              min={minOrder}
+              max={quantityMax}
             />
           </div>
 
           {variantSummary ? (
-            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-slate-700">
+            <div className="rounded-xl border border-transparent bg-slate-50 p-3 text-slate-700">
               <p className="font-semibold">Varian dipilih</p>
               <p className="mt-1 text-xs leading-relaxed">{variantSummary}</p>
             </div>
           ) : null}
 
-          <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-3">
+          <div className="space-y-2 rounded-xl border border-transparent bg-slate-50 p-3">
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Harga</span>
               <span className="font-medium text-slate-800">{formatCurrencyIDR(selectedPrice)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Jumlah</span>
-              <span className="font-medium text-slate-800">{quantity} item</span>
+              <span className="font-medium text-slate-800">{normalizedQuantity} item</span>
             </div>
             <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-base font-semibold text-slate-900">
               <span>Total</span>
@@ -143,7 +173,7 @@ export const OrderSidebar = ({ product, selectedPrice, selectedVariants, selecte
               Beli Sekarang
             </Button>
 
-            {product.trade_in ? (
+            {tradeInAvailable ? (
               <Button
                 type="button"
                 onClick={handleTradeIn}

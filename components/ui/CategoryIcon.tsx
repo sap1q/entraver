@@ -1,19 +1,15 @@
 "use client";
 
 import { Folder } from "lucide-react";
+import { resolveApiOriginUrl } from "@/lib/api-config";
 
 type CategoryIconProps = {
   icon?: string | null;
   className?: string;
 };
 
-const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-const API_BASE_URL = RAW_API_URL.replace(/\/api\/?$/i, "");
-
 const resolveIconUrl = (icon: string): string => {
-  if (/^https?:\/\//i.test(icon) || icon.startsWith("data:") || icon.startsWith("blob:")) return icon;
-  if (icon.startsWith("/")) return `${API_BASE_URL}${icon}`;
-  return `${API_BASE_URL}/${icon}`;
+  return resolveApiOriginUrl(icon);
 };
 
 export default function CategoryIcon({ icon, className = "h-5 w-5" }: CategoryIconProps) {
@@ -31,4 +27,3 @@ export default function CategoryIcon({ icon, className = "h-5 w-5" }: CategoryIc
     <img src={url} alt="Category icon" className={`${className} object-contain`} />
   );
 }
-

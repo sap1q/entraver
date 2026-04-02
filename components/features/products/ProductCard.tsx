@@ -1,10 +1,13 @@
 "use client";
 
 import type { MouseEvent } from "react";
+import { useEffect, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Heart, Star } from "lucide-react";
+import { Star } from "lucide-react";
+import { WishlistHeartButton } from "@/components/ui/WishlistHeartButton";
 import { useWishlist } from "@/hooks/useWishlist";
+import { createWishlistSnapshotFromProduct } from "@/lib/wishlist";
 import { cn } from "@/lib/utils";
 import { formatCurrencyIDR } from "@/lib/utils/formatter";
 import type { Product } from "@/types/product.types";
@@ -14,124 +17,114 @@ interface ProductCardProps {
   view?: "grid" | "list";
 }
 
-const ratingStars = Array.from({ length: 5 }, (_, index) => index + 1);
-
 export const ProductCard = ({ product, view = "grid" }: ProductCardProps) => {
-  const { toggleWishlist, isInWishlist, isPending } = useWishlist();
-  const isWishlisted = Boolean(product.is_wishlisted) || isInWishlist(product.id);
+  const { toggleWishlist, seedWishlistItem, isInWishlist, isPending, hasHydrated } = useWishlist();
+  const wishlistSnapshot = useMemo(() => createWishlistSnapshotFromProduct(product), [product]);
+  const isWishlisted = hasHydrated ? isInWishlist(product.id) : Boolean(product.is_wishlisted);
   const wishlistPending = isPending(product.id);
   const imageSrc = product.image?.trim() ? product.image : "/assets/images/hero/e-hero.png";
-  const roundedRating = Math.max(0, Math.min(5, Math.round(product.rating)));
-  const hasOriginalPrice = typeof product.original_price === "number" && product.original_price > product.price;
+  const displayRating = Number.isFinite(product.rating) ? product.rating : 0;
+  const soldLabel = product.sold_count > 0 ? `${product.sold_count}+ terjual` : "0 terjual";
+  const isOutOfStock = product.stock_status === "out_of_stock" || product.stock <= 0;
+  const wishlistButtonClass = "h-9 w-9 rounded-full bg-white/95 shadow-[0_10px_24px_rgba(15,23,42,0.16)] backdrop-blur-sm";
+
+  useEffect(() => {
+    if (!product.is_wishlisted || hasHydrated) return;
+    seedWishlistItem(wishlistSnapshot);
+  }, [hasHydrated, product.is_wishlisted, seedWishlistItem, wishlistSnapshot]);
 
   const handleWishlistClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    void toggleWishlist(product.id);
+    void toggleWishlist(product.id, wishlistSnapshot);
   };
 
   return (
     <Link href={`/products/${encodeURIComponent(product.slug)}`} className="group block h-full">
       <article
         className={cn(
-          "h-full overflow-hidden rounded-2xl border border-slate-200 bg-white transition-all duration-200",
-          "shadow-[0_10px_28px_-24px_rgba(15,23,42,0.55)] hover:-translate-y-0.5 hover:shadow-[0_18px_35px_-26px_rgba(37,99,235,0.5)]",
+          "relative h-full rounded-[1.35rem] border border-transparent bg-white transition-transform duration-200 hover:-translate-y-0.5",
           view === "list" ? "sm:flex" : ""
         )}
       >
         <div
           className={cn(
-            "relative aspect-square overflow-hidden bg-slate-50",
-            view === "list" ? "w-full sm:w-44 sm:flex-shrink-0" : "w-full"
+            "w-full",
+            view === "list" ? "sm:w-[15.5rem] sm:flex-shrink-0" : ""
           )}
         >
-          <Image
-            src={imageSrc}
-            alt={product.name}
-            fill
-            className="object-contain p-4 transition-transform duration-500 group-hover:scale-105"
-            unoptimized
-            sizes={
-              view === "list"
-                ? "(max-width: 640px) 100vw, 176px"
-                : "(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1280px) 24vw, 19vw"
-            }
-            loading="lazy"
-          />
-
-          <button
-            type="button"
-            onClick={handleWishlistClick}
-            disabled={wishlistPending}
-            className={cn(
-              "absolute right-2 top-2 z-10 rounded-full border border-slate-200 bg-white p-1.5",
-              "shadow-sm transition-all duration-200 hover:scale-105 hover:border-slate-300 hover:bg-slate-50",
-              wishlistPending ? "cursor-not-allowed opacity-70" : ""
-            )}
-            aria-label={isWishlisted ? "Hapus dari wishlist" : "Tambah ke wishlist"}
-          >
-            <Heart
+          <div className="rounded-[1.15rem] bg-white px-4 pb-4 pt-5">
+            <div
               className={cn(
-                "h-4 w-4 transition-all duration-200",
-                isWishlisted ? "fill-rose-500 text-rose-500" : "text-slate-500"
+                "relative mx-auto aspect-square w-full overflow-hidden rounded-[1.35rem]",
+                isOutOfStock ? "bg-[#d9d9d9]" : "",
+                view === "list" ? "max-w-[12rem]" : "max-w-[11.5rem]"
               )}
-            />
-          </button>
-
-          {product.discount_percentage ? (
-            <span className="absolute bottom-2 left-2 rounded-full bg-rose-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
-              {product.discount_percentage}%
-            </span>
-          ) : null}
+            >
+              <div className="absolute right-2 top-2 left-auto bottom-auto z-30">
+                <WishlistHeartButton
+                  active={isWishlisted}
+                  pending={wishlistPending}
+                  onClick={handleWishlistClick}
+                  className={wishlistButtonClass}
+                  iconClassName="h-5 w-5"
+                />
+              </div>
+              <Image
+                src={imageSrc}
+                alt={product.name}
+                fill
+                className={cn(
+                  "transition-transform duration-500 group-hover:scale-105",
+                  isOutOfStock ? "object-cover grayscale opacity-45" : "object-contain"
+                )}
+                unoptimized
+                sizes={
+                  view === "list"
+                    ? "(max-width: 640px) 100vw, 192px"
+                    : "(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1280px) 24vw, 19vw"
+                }
+                loading="lazy"
+              />
+              {isOutOfStock ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-500/24">
+                  <span
+                    className={cn(
+                      "px-4 text-center font-black uppercase leading-[0.9] text-white drop-shadow-[0_4px_18px_rgba(0,0,0,0.3)]",
+                      view === "list" ? "text-[1.7rem] tracking-[0.06em]" : "text-[1.35rem] tracking-[0.04em]"
+                    )}
+                  >
+                    Stok Habis
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-1 flex-col p-3 sm:p-4">
-          <div className="flex items-center gap-2 text-[10px] font-medium text-slate-500">
-            <span className="truncate rounded-full bg-slate-100 px-2 py-1">{product.category.name}</span>
-            <span className="truncate">{product.brand.name}</span>
-          </div>
-
+        <div className="flex flex-1 flex-col px-1 pb-2 pt-4 sm:px-2">
           <h3
             className={cn(
-              "mt-2 line-clamp-2 text-sm font-semibold leading-snug text-slate-900 transition-colors group-hover:text-blue-700",
+              "line-clamp-3 text-[1.05rem] font-semibold leading-8 text-slate-950",
               view === "list"
-                ? "sm:text-base"
-                : "min-h-[2.75rem]"
+                ? "sm:line-clamp-2 sm:text-[1.1rem]"
+                : "min-h-[6rem]"
             )}
           >
             {product.name}
           </h3>
 
-          <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
-            <div className="flex items-center gap-0.5">
-              {ratingStars.map((star) => (
-                <Star
-                  key={star}
-                  className={cn(
-                    "h-3.5 w-3.5",
-                    star <= roundedRating ? "fill-amber-400 text-amber-400" : "fill-slate-200 text-slate-200"
-                  )}
-                />
-              ))}
-            </div>
-            <span className="font-semibold text-slate-700">{product.rating.toFixed(1)}</span>
-            <span className="text-slate-400">- {product.sold_count} terjual</span>
-          </div>
-
-          <div className="mt-2 space-y-0.5">
-            {hasOriginalPrice ? (
-              <p className="text-xs text-slate-400 line-through">{formatCurrencyIDR(product.original_price as number)}</p>
-            ) : null}
-            <p className={cn("font-bold text-slate-950", view === "list" ? "text-lg" : "text-base sm:text-lg")}>
+          <div className="mt-2">
+            <p className={cn("font-bold text-slate-950", view === "list" ? "text-[1.75rem]" : "text-[1.2rem]")}>
               {formatCurrencyIDR(product.price)}
             </p>
           </div>
 
-          {product.free_shipping ? (
-            <div className="mt-2 inline-flex w-fit rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-              Gratis ongkir
-            </div>
-          ) : null}
+          <div className="mt-2 flex items-center gap-1.5 text-sm text-slate-500">
+            <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+            <span className="font-medium text-slate-700">{displayRating.toFixed(1)}</span>
+            <span className="text-slate-400">{soldLabel}</span>
+          </div>
         </div>
       </article>
     </Link>

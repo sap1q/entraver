@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Loader2, RefreshCcw, Search, TriangleAlert } from "lucide-react";
 import api, { isAxiosError } from "@/lib/axios";
+import { resolveApiOriginUrl } from "@/lib/api-config";
 import StockAdjustmentModal, {
   type StockAdjustmentPayload,
   type StockAdjustmentTarget,
@@ -81,8 +82,6 @@ const mutationTypeLabelMap: Record<MutationLog["type"], string> = {
   adjustment: "Adjustment",
 };
 
-const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-const API_BASE_URL = RAW_API_URL.replace(/\/api\/?$/i, "");
 const DEFAULT_INVENTORY_DATA: InventoryQueryData = {
   rows: [],
   stats: {
@@ -109,8 +108,8 @@ const normalizeImageUrl = (value: unknown): string => {
   const trimmed = value.trim();
   if (!trimmed) return "/product-placeholder.svg";
   if (/^(blob:|data:|https?:\/\/)/i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith("/")) return `${API_BASE_URL}${trimmed}`;
-  return `${API_BASE_URL}/storage/products/${trimmed}`;
+  if (trimmed.startsWith("/")) return resolveApiOriginUrl(trimmed);
+  return resolveApiOriginUrl(`/storage/products/${trimmed}`);
 };
 
 const formatDateTime = (value: string | null | undefined): string => {

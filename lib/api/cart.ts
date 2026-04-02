@@ -1,33 +1,11 @@
 import { isAxiosError } from "axios";
-import api from "@/lib/axios";
+import client from "@/lib/api/client";
+import { CART_ENDPOINTS } from "@/lib/constants";
+import type { CartApiResponse, CartItem } from "@/types/cart.types";
 
 type JsonRecord = Record<string, unknown>;
 
-export interface CartApiItem {
-  id: string;
-  productId: string;
-  name: string;
-  slug?: string;
-  image: string;
-  price: number;
-  variantSku?: string;
-  quantity: number;
-  stock: number;
-  minOrder: number;
-  selected: boolean;
-  variants: Record<string, string>;
-  tradeInEnabled: boolean;
-  tradeInValue: number;
-  tradeInUnitValue: number;
-}
-
-export interface CartApiResponse {
-  success: boolean;
-  message?: string;
-  items: CartApiItem[];
-  item?: CartApiItem;
-  localOnly?: boolean;
-}
+export type CartApiItem = CartItem;
 
 const CART_PLACEHOLDER_IMAGE = "/assets/images/hero/e-hero.png";
 const CART_API_ENABLED = process.env.NEXT_PUBLIC_ENABLE_CART_API === "true";
@@ -132,6 +110,15 @@ const buildVariantKey = (variants: Record<string, string>): string => {
     .join("|");
 };
 
+const buildTradeInLineKey = (tradeInTransactionId?: string | null, tradeInEnabled?: boolean): string => {
+  const normalizedTransactionId = toStringValue(tradeInTransactionId);
+  if (normalizedTransactionId) {
+    return `trade-in:${normalizedTransactionId}`;
+  }
+
+  return tradeInEnabled ? "trade-in:pending" : "standard";
+};
+
 const resolveCartRows = (payload: unknown): unknown[] => {
   if (Array.isArray(payload)) return payload;
 
@@ -165,6 +152,12 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
 
   const variants = extractVariantMap(row, product);
   const variantKey = buildVariantKey(variants);
+  const tradeInEnabled = toBooleanValue(row.trade_in_enabled ?? row.is_trade_in);
+  const tradeInTransactionId =
+    toStringValue(row.trade_in_transaction_id) ??
+    toStringValue(toObject(row.metadata).trade_in_transaction_id) ??
+    null;
+  const lineKey = buildTradeInLineKey(tradeInTransactionId, tradeInEnabled);
 
   const productId =
     toStringValue(row.product_id) ??
@@ -175,7 +168,7 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
     toStringValue(row.id) ??
     toStringValue(row.item_id) ??
     toStringValue(row.cart_item_id) ??
-    (productId ? `${productId}:${variantKey || "default"}` : null);
+    (productId ? `${productId}:${variantKey || "default"}:${lineKey}` : null);
   const name =
     toStringValue(row.name) ??
     toStringValue(row.product_name) ??
@@ -190,6 +183,11 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
     toNumberValue(row.product_price) ??
     toNumberValue(product.price) ??
     0;
+  const displayPrice =
+    toNumberValue(row.display_price) ??
+    toNumberValue(row.entraverse_price) ??
+    toNumberValue(product.entraverse_price) ??
+    price;
   const quantity = Math.max(1, normalizePositiveInt(row.quantity ?? row.qty, 1));
   const stock =
     normalizePositiveInt(
@@ -201,9 +199,10 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
     normalizePositiveInt(row.min_order ?? product.min_order, 1)
   );
   const selected = row.selected === undefined ? true : toBooleanValue(row.selected ?? row.is_selected);
-  const tradeInEnabled = toBooleanValue(
-    row.trade_in_enabled ?? row.trade_in ?? product.trade_in_enabled ?? product.trade_in
-  );
+  const tradeInTransactionNumber =
+    toStringValue(row.trade_in_transaction_number) ??
+    toStringValue(toObject(row.metadata).trade_in_transaction_number) ??
+    null;
   const tradeInUnitValue =
     toNumberValue(row.trade_in_per_item) ??
     toNumberValue(row.trade_in_value_per_unit) ??
@@ -226,6 +225,7 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
       toStringValue(product.image) ??
       CART_PLACEHOLDER_IMAGE,
     price: Math.max(0, price),
+    displayPrice: Math.max(0, displayPrice),
     variantSku:
       toStringValue(row.variant_sku) ??
       toStringValue(row.sku) ??
@@ -236,9 +236,11 @@ const mapCartItem = (raw: unknown): CartApiItem | null => {
     minOrder,
     selected,
     variants,
-    tradeInEnabled,
+    tradeInEnabled: tradeInEnabled || tradeInTransactionId !== null,
     tradeInValue: Math.max(0, tradeInValue),
     tradeInUnitValue: Math.max(0, tradeInUnitValue),
+    tradeInTransactionId: tradeInTransactionId ?? undefined,
+    tradeInTransactionNumber: tradeInTransactionNumber ?? undefined,
   };
 };
 
@@ -269,6 +271,10 @@ const parseCartResponse = (payload: unknown): CartApiResponse => {
 };
 
 const extractErrorMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message.trim() !== "") {
+    return error.message;
+  }
+
   if (!isAxiosError(error)) return "Gagal memproses keranjang.";
 
   const payload = error.response?.data as unknown;
@@ -284,6 +290,14 @@ const extractErrorMessage = (error: unknown): string => {
   }
 
   return "Gagal memproses keranjang.";
+};
+
+const normalizeError = (err: unknown, fallback: string): never => {
+  if (isAxiosError(err)) {
+    throw new Error(err.response?.data?.message ?? fallback);
+  }
+
+  throw err;
 };
 
 const isEndpointMissingError = (error: unknown): boolean => {
@@ -325,7 +339,7 @@ const requestWithFallback = async <T>(
         lastError = error;
         continue;
       }
-      throw error;
+      return normalizeError(error, "Gagal memproses keranjang.");
     }
   }
 
@@ -350,8 +364,8 @@ export const cartApi = {
   getCart: async (): Promise<CartApiResponse> => {
     try {
       const resolved = await requestWithFallback([
-        () => api.get("/v1/cart"),
-        () => api.get("/v1/cart/items"),
+        () => client.get(CART_ENDPOINTS.list[0]),
+        () => client.get(CART_ENDPOINTS.list[1]),
       ], "getCart");
 
       if (resolved.localOnly || !resolved.data) {
@@ -376,9 +390,9 @@ export const cartApi = {
   ): Promise<CartApiResponse> => {
     try {
       const resolved = await requestWithFallback([
-        () => api.post("/v1/cart/add", { product_id: productId, quantity, variant }),
-        () => api.post("/v1/cart/items", { product_id: productId, quantity, variant }),
-        () => api.post("/v1/cart", { product_id: productId, quantity, variant }),
+        () => client.post(CART_ENDPOINTS.add[0], { product_id: productId, quantity, variant }),
+        () => client.post(CART_ENDPOINTS.add[1], { product_id: productId, quantity, variant }),
+        () => client.post(CART_ENDPOINTS.add[2], { product_id: productId, quantity, variant }),
       ], "addItem");
 
       if (resolved.localOnly || !resolved.data) {
@@ -404,9 +418,9 @@ export const cartApi = {
     try {
       const payload = { item_id: itemId, product_id: productId, quantity };
       const resolved = await requestWithFallback([
-        () => api.patch(`/v1/cart/items/${encodeURIComponent(itemId)}`, { quantity }),
-        () => api.patch(`/v1/cart/${encodeURIComponent(itemId)}`, { quantity }),
-        () => api.patch("/v1/cart/update", payload),
+        () => client.patch(CART_ENDPOINTS.update(itemId)[0], { quantity }),
+        () => client.patch(CART_ENDPOINTS.update(itemId)[1], { quantity }),
+        () => client.patch(CART_ENDPOINTS.updateLegacy, payload),
       ], "updateItemQuantity");
 
       if (resolved.localOnly || !resolved.data) {
@@ -427,10 +441,10 @@ export const cartApi = {
   removeItem: async (itemId: string, productId?: string): Promise<CartApiResponse> => {
     try {
       const resolved = await requestWithFallback([
-        () => api.delete(`/v1/cart/items/${encodeURIComponent(itemId)}`),
-        () => api.delete(`/v1/cart/${encodeURIComponent(itemId)}`),
+        () => client.delete(CART_ENDPOINTS.remove(itemId)[0]),
+        () => client.delete(CART_ENDPOINTS.remove(itemId)[1]),
         () =>
-          api.delete("/v1/cart/remove", {
+          client.delete(CART_ENDPOINTS.removeLegacy, {
             data: { item_id: itemId, product_id: productId },
           }),
       ], "removeItem");

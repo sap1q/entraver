@@ -8,12 +8,19 @@ type CategoryStatsProps = {
   isLoading?: boolean;
 };
 
-const cards = [
+type StatCard = {
+  key: keyof CategoryStatsType;
+  label: string;
+  icon: typeof Layers;
+  suffix?: string;
+};
+
+const cards: readonly StatCard[] = [
   { key: "total", label: "Total Kategori", icon: Layers },
   { key: "active", label: "Kategori Aktif", icon: Activity },
   { key: "deleted", label: "Terhapus", icon: Trash2 },
   { key: "avg_margin", label: "Rata-rata Margin", icon: BarChart3, suffix: "%" },
-] as const;
+];
 
 export default function CategoryStats({ stats, isLoading = false }: CategoryStatsProps) {
   return (

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AxiosError } from "axios";
 import { authApi } from "@/lib/api/auth";
-import { getStoredAdmin, getToken, removeStoredAdmin, removeToken, setStoredAdmin, setToken } from "@/lib/utils/storage";
+import { clearPersistedAuth, persistAuthToken } from "@/lib/axios";
+import { TokenService } from "@/src/lib/auth/tokens";
 import type { Admin, LoginCredentials, RegisterData } from "@/types/auth.types";
 
 type AuthErrors = Record<string, string[]>;
@@ -33,12 +34,11 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function useAuth() {
   const [state, setState] = useState<AuthState>(() => {
-    const admin = getStoredAdmin();
-    const token = getToken();
+    const profile = TokenService.getUserType() === "admin" ? TokenService.getUserProfile() : null;
     return {
       ...initialState,
-      admin,
-      isAuthenticated: Boolean(admin && token),
+      admin: profile ? profile as Admin : null,
+      isAuthenticated: Boolean(profile && TokenService.hasValidToken()),
     };
   });
 
@@ -54,7 +54,34 @@ export function useAuth() {
     setState((prev) => ({ ...prev, error: "", fieldErrors: {} }));
   }, []);
 
-  const validateLogin = (payload: LoginCredentials): AuthErrors => {
+  useEffect(() => {
+    TokenService.migrateLegacyTokens();
+
+    const token = TokenService.getToken();
+    if (token) {
+      persistAuthToken(token);
+    }
+
+    const unsubscribeLogout = TokenService.on("logout", () => {
+      setState({ ...initialState });
+    });
+
+    const unsubscribeExpired = TokenService.on("session-expired", () => {
+      setState((prev) => ({
+        ...prev,
+        admin: null,
+        isAuthenticated: false,
+        error: "Sesi Anda telah berakhir. Silakan login kembali.",
+      }));
+    });
+
+    return () => {
+      unsubscribeLogout();
+      unsubscribeExpired();
+    };
+  }, []);
+
+  const validateLogin = useCallback((payload: LoginCredentials): AuthErrors => {
     const errors: AuthErrors = {};
 
     if (!payload.email?.trim()) {
@@ -70,9 +97,9 @@ export function useAuth() {
     }
 
     return errors;
-  };
+  }, []);
 
-  const validateRegister = (payload: RegisterData): AuthErrors => {
+  const validateRegister = useCallback((payload: RegisterData): AuthErrors => {
     const errors: AuthErrors = {};
 
     if (!payload.name?.trim()) errors.name = ["Nama wajib diisi."];
@@ -93,7 +120,7 @@ export function useAuth() {
     }
 
     return errors;
-  };
+  }, []);
 
   const parseAxiosError = (error: unknown) => {
     const axiosError = error as AxiosError<ErrorPayload>;
@@ -112,8 +139,7 @@ export function useAuth() {
   };
 
   const checkAuth = useCallback(async () => {
-    const token = getToken();
-    if (!token) {
+    if (!TokenService.hasValidToken()) {
       setState((prev) => ({ ...prev, admin: null, isAuthenticated: false }));
       return false;
     }
@@ -124,7 +150,12 @@ export function useAuth() {
     try {
       const response = await authApi.getProfile();
       const admin = response.data;
-      setStoredAdmin(admin);
+      TokenService.setUserProfile({
+        id: admin.id,
+        email: admin.email,
+        name: admin.name,
+        role: admin.role,
+      });
       setState((prev) => ({
         ...prev,
         admin,
@@ -132,8 +163,7 @@ export function useAuth() {
       }));
       return true;
     } catch {
-      removeToken();
-      removeStoredAdmin();
+      clearPersistedAuth();
       setState((prev) => ({ ...prev, admin: null, isAuthenticated: false }));
       return false;
     } finally {
@@ -166,8 +196,18 @@ export function useAuth() {
         remember: credentials.remember,
       });
 
-      setToken(response.data.token, Boolean(credentials.remember));
-      setStoredAdmin(response.data.admin);
+      persistAuthToken(
+        response.data.token,
+        Boolean(credentials.remember),
+        response.data.expires_in,
+        response.data.refresh_token
+      );
+      TokenService.setUserProfile({
+        id: response.data.admin.id,
+        email: response.data.admin.email,
+        name: response.data.admin.name,
+        role: response.data.admin.role,
+      });
 
       setState((prev) => ({
         ...prev,
@@ -183,7 +223,7 @@ export function useAuth() {
     } finally {
       setLoading(false);
     }
-  }, [clearError]);
+  }, [clearError, validateLogin]);
 
   const register = useCallback(async (payload: RegisterData) => {
     const clientErrors = validateRegister(payload);
@@ -201,8 +241,18 @@ export function useAuth() {
         email: payload.email.trim().toLowerCase(),
       });
 
-      setToken(response.data.token, true);
-      setStoredAdmin(response.data.admin);
+      persistAuthToken(
+        response.data.token,
+        true,
+        response.data.expires_in,
+        response.data.refresh_token
+      );
+      TokenService.setUserProfile({
+        id: response.data.admin.id,
+        email: response.data.admin.email,
+        name: response.data.admin.name,
+        role: response.data.admin.role,
+      });
 
       setState((prev) => ({
         ...prev,
@@ -218,7 +268,7 @@ export function useAuth() {
     } finally {
       setLoading(false);
     }
-  }, [clearError]);
+  }, [clearError, validateRegister]);
 
   const logout = useCallback(async () => {
     setLoading(true);
@@ -227,15 +277,14 @@ export function useAuth() {
     } catch {
       // logout client-side tetap dijalankan meski request gagal
     } finally {
-      removeToken();
-      removeStoredAdmin();
+      clearPersistedAuth();
       setState({ ...initialState });
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!state.isAuthenticated && getToken()) {
+    if (!state.isAuthenticated && TokenService.hasValidToken()) {
       void checkAuth();
     }
   }, [checkAuth, state.isAuthenticated]);
@@ -247,5 +296,7 @@ export function useAuth() {
     logout,
     checkAuth,
     clearError,
-  }), [state, login, register, logout, checkAuth, clearError]);
+    validateLogin,
+    validateRegister,
+  }), [state, login, register, logout, checkAuth, clearError, validateLogin, validateRegister]);
 }

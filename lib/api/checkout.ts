@@ -1,84 +1,33 @@
 import { isAxiosError } from "axios";
-import api from "@/lib/axios";
+import client from "@/lib/api/client";
+import { CHECKOUT_ENDPOINTS, PRODUCT_ENDPOINTS, SHIPPING_ENDPOINTS } from "@/lib/constants";
+import type {
+  CheckoutOrder,
+  CheckoutOrderItem,
+  CheckoutProcessPayload,
+  CheckoutProcessResult,
+  CheckoutShippingOption,
+  CheckoutTradeInTransactionSummary,
+  ProductSnapshot,
+  ShippingCostPayload,
+  ShippingCostResult,
+} from "@/types/checkout.types";
 import type { ProductVariantPricingRow } from "@/types/product.types";
 
+export type {
+  CheckoutOrder,
+  CheckoutOrderItem,
+  CheckoutProcessItemPayload,
+  CheckoutProcessPayload,
+  CheckoutProcessResult,
+  CheckoutShippingOption,
+  CheckoutTradeInTransactionSummary,
+  ProductSnapshot,
+  ShippingCostPayload,
+  ShippingCostResult,
+} from "@/types/checkout.types";
+
 type JsonRecord = Record<string, unknown>;
-
-export type CheckoutShippingOption = {
-  service: string;
-  description: string | null;
-  cost: number;
-  etd: string | null;
-  note: string | null;
-};
-
-export type ShippingCostResult = {
-  courier: string;
-  destinationCityId: string;
-  weight: number;
-  options: CheckoutShippingOption[];
-};
-
-export type CheckoutProcessItemPayload = {
-  product_id: string;
-  quantity: number;
-  variant_sku?: string;
-  variants?: Record<string, string>;
-};
-
-export type CheckoutProcessPayload = {
-  address_id: string;
-  courier: string;
-  service: string;
-  notes?: string;
-  items: CheckoutProcessItemPayload[];
-};
-
-export type CheckoutOrderItem = {
-  id: string;
-  productId: string;
-  productName: string;
-  variantName: string | null;
-  variantSku: string;
-  quantity: number;
-  unitPrice: number;
-  lineTotal: number;
-};
-
-export type CheckoutOrder = {
-  id: string;
-  orderNumber: string;
-  status: string;
-  paymentStatus: string;
-  subtotal: number;
-  shippingCost: number;
-  totalAmount: number;
-  shippingCourier: string | null;
-  shippingService: string | null;
-  shippingEtd: string | null;
-  shippingWeight: number;
-  items: CheckoutOrderItem[];
-};
-
-export type CheckoutProcessResult = {
-  order: CheckoutOrder;
-  snapToken: string;
-  snapRedirectUrl: string | null;
-  midtransClientKey: string;
-  midtransSnapJsUrl: string;
-  shipping: CheckoutShippingOption;
-  shippingWeight: number;
-};
-
-export type ProductSnapshot = {
-  id: string;
-  name: string;
-  price: number;
-  stock: number;
-  weight: number;
-  image: string;
-  variant_pricing: ProductVariantPricingRow[];
-};
 
 const toObject = (value: unknown): JsonRecord => {
   if (!value || typeof value !== "object") return {};
@@ -132,20 +81,33 @@ const mapVariantPricingRow = (raw: unknown): ProductVariantPricingRow | null => 
 };
 
 const extractErrorMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message.trim() !== "") {
+    return error.message;
+  }
+
   if (!isAxiosError(error)) return "Terjadi kesalahan saat memproses checkout.";
 
   const payload = toObject(error.response?.data);
+  const errors = toObject(payload.errors);
+  for (const value of Object.values(errors)) {
+    if (Array.isArray(value) && value.length > 0) {
+      const message = toStringValue(value[0]);
+      if (message) return message;
+    }
+  }
+
   const directMessage = toStringValue(payload.message);
   if (directMessage) return directMessage;
 
-  const errors = toObject(payload.errors);
-  const firstError = Object.values(errors)[0];
-  if (Array.isArray(firstError) && firstError.length > 0) {
-    const message = toStringValue(firstError[0]);
-    if (message) return message;
+  return "Terjadi kesalahan saat memproses checkout.";
+};
+
+const normalizeError = (err: unknown, fallback: string): never => {
+  if (isAxiosError(err)) {
+    throw new Error(err.response?.data?.message ?? fallback);
   }
 
-  return "Terjadi kesalahan saat memproses checkout.";
+  throw err;
 };
 
 const mapShippingOption = (raw: unknown): CheckoutShippingOption | null => {
@@ -172,6 +134,7 @@ const mapCheckoutOrder = (raw: unknown): CheckoutOrder => {
     status: toStringValue(row.status) ?? "",
     paymentStatus: toStringValue(row.payment_status) ?? "pending",
     subtotal: toNumberValue(row.subtotal),
+    discountAmount: toNumberValue(row.discount_amount),
     shippingCost: toNumberValue(row.shipping_cost),
     totalAmount: toNumberValue(row.total_amount),
     shippingCourier: toStringValue(row.shipping_courier),
@@ -195,34 +158,64 @@ const mapCheckoutOrder = (raw: unknown): CheckoutOrder => {
   };
 };
 
+const mapTradeInTransactionSummary = (raw: unknown): CheckoutTradeInTransactionSummary | null => {
+  const row = toObject(raw);
+  const id = toStringValue(row.id);
+  const transactionNumber = toStringValue(row.transaction_number);
+  const status = toStringValue(row.status);
+
+  if (!id || !transactionNumber || !status) {
+    return null;
+  }
+
+  return {
+    id,
+    transactionNumber,
+    status,
+    tradeInOnly: Boolean(row.trade_in_only),
+    estimatedAmount: toNumberValue(row.estimated_amount),
+    requestedProductName: toStringValue(row.requested_product_name),
+    createdAt: toStringValue(row.created_at),
+    updatedAt: toStringValue(row.updated_at),
+  };
+};
+
 export const checkoutApi = {
-  async getShippingCost(payload: { city_id: string; weight: number; courier: string }): Promise<ShippingCostResult> {
+  async getShippingCost(payload: ShippingCostPayload): Promise<ShippingCostResult> {
     try {
-      const response = await api.post("/shipping/cost", payload);
+      const response = await client.post(SHIPPING_ENDPOINTS.cost, payload);
       const source = toObject(response.data);
       const data = toObject(source.data);
       const options = Array.isArray(data.options) ? data.options : [];
 
       return {
         courier: toStringValue(data.courier) ?? payload.courier,
-        destinationCityId: toStringValue(data.destination_city_id) ?? payload.city_id,
-        weight: Math.max(1, Math.round(toNumberValue(data.weight) || payload.weight)),
+        destinationCityId: toStringValue(data.destination_city_id) ?? payload.city_id ?? "",
+        destinationDistrictId: toStringValue(data.destination_district_id),
+        itemWeight: Math.max(0, Math.round(toNumberValue(data.item_weight))),
+        packagingWeight: Math.max(0, Math.round(toNumberValue(data.packaging_weight))),
+        weight: Math.max(1, Math.round(toNumberValue(data.weight) || toNumberValue(payload.weight) || 1)),
+        strictMode: Boolean(data.strict_mode),
         options: options
           .map(mapShippingOption)
           .filter((item): item is CheckoutShippingOption => item !== null),
       };
     } catch (error) {
-      throw new Error(extractErrorMessage(error));
+      return normalizeError(error, extractErrorMessage(error));
     }
   },
 
   async processCheckout(payload: CheckoutProcessPayload): Promise<CheckoutProcessResult> {
     try {
-      const response = await api.post("/checkout/process", payload);
+      const response = await client.post(CHECKOUT_ENDPOINTS.process, payload);
       const source = toObject(response.data);
       const data = toObject(source.data);
+      const tradeInTransactions = (Array.isArray(data.trade_in_transactions) ? data.trade_in_transactions : [])
+        .map(mapTradeInTransactionSummary)
+        .filter((item): item is CheckoutTradeInTransactionSummary => item !== null);
+      const primaryTradeIn = tradeInTransactions[0] ?? null;
       const shipping = mapShippingOption(data.shipping) ?? {
-        service: payload.service,
+        service: payload.service ?? "",
         description: null,
         cost: 0,
         etd: null,
@@ -230,7 +223,22 @@ export const checkoutApi = {
       };
 
       return {
-        order: mapCheckoutOrder(data.order),
+        entryKind: (toStringValue(data.entry_kind) ?? "sales_order") as "sales_order" | "trade_in",
+        requiresPayment: Boolean(data.requires_payment ?? true),
+        order: mapCheckoutOrder(
+          data.order ?? {
+            id: primaryTradeIn?.id ?? "",
+            order_number: primaryTradeIn?.transactionNumber ?? "",
+            status: primaryTradeIn?.status ?? "",
+            payment_status: "not_required",
+            subtotal: 0,
+            discount_amount: 0,
+            shipping_cost: 0,
+            total_amount: 0,
+            items: [],
+          }
+        ),
+        tradeInTransactions,
         snapToken: toStringValue(data.snap_token) ?? "",
         snapRedirectUrl: toStringValue(data.snap_redirect_url),
         midtransClientKey: toStringValue(data.midtrans_client_key) ?? "",
@@ -240,13 +248,13 @@ export const checkoutApi = {
         shippingWeight: Math.max(1, Math.round(toNumberValue(data.shipping_weight) || 1)),
       };
     } catch (error) {
-      throw new Error(extractErrorMessage(error));
+      return normalizeError(error, extractErrorMessage(error));
     }
   },
 
   async getProductSnapshot(productId: string): Promise<ProductSnapshot> {
     try {
-      const response = await api.get(`/v1/products/${productId}`);
+      const response = await client.get(PRODUCT_ENDPOINTS.detail(productId));
       const source = toObject(response.data);
       const data = toObject(source.data);
       const inventory = toObject(data.inventory);
@@ -266,8 +274,8 @@ export const checkoutApi = {
           .map(mapVariantPricingRow)
           .filter((item): item is ProductVariantPricingRow => item !== null),
       };
-    } catch {
-      throw new Error("Gagal mengambil data master produk.");
+    } catch (error) {
+      return normalizeError(error, "Gagal mengambil data master produk.");
     }
   },
 };

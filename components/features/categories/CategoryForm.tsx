@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Info, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import FeeComponents from "@/components/features/categories/FeeComponents";
 import { useCategoryForm } from "@/hooks/useCategories";
 import {
+  parseDecimalValue,
   parseWarrantyProgram,
   serializeWarrantyProgram,
   WARRANTY_COST_LABEL,
@@ -14,11 +15,8 @@ import {
   type WarrantyComponent,
   type WarrantyPricingConfig,
 } from "@/lib/warrantyProgram";
+import { resolveApiOriginUrl } from "@/lib/api-config";
 import type { Category } from "@/types/category.types";
-
-const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-const API_BASE_URL = RAW_API_URL.replace(/\/api\/?$/i, "");
-const ABSOLUTE_URL_REGEX = /^https?:\/\//i;
 
 const isRawSvg = (value?: string | null): boolean => {
   if (!value) return false;
@@ -35,15 +33,7 @@ const resolveIconUrl = (value?: string | null): string | null => {
     return `data:image/svg+xml;utf8,${encodeURIComponent(trimmed)}`;
   }
 
-  if (ABSOLUTE_URL_REGEX.test(trimmed) || trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
-    return trimmed;
-  }
-
-  if (trimmed.startsWith("/")) {
-    return `${API_BASE_URL}${trimmed}`;
-  }
-
-  return `${API_BASE_URL}/${trimmed.replace(/^\/+/, "")}`;
+  return resolveApiOriginUrl(trimmed);
 };
 
 const createWarrantyId = (): string => {
@@ -81,6 +71,7 @@ export default function CategoryForm({
     () => (values.iconFile ? URL.createObjectURL(values.iconFile) : null),
     [values.iconFile]
   );
+  const [warrantyInputValues, setWarrantyInputValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
     return () => {
@@ -162,6 +153,23 @@ export default function CategoryForm({
     ]);
   };
 
+  const normalizeDecimalDraft = (value: string): string =>
+    value
+      .replace(",", ".")
+      .replace(/[^\d.]/g, "")
+      .replace(/(\..*)\./g, "$1");
+
+  const getWarrantyDraftValue = (key: string, fallback: number): string =>
+    Object.prototype.hasOwnProperty.call(warrantyInputValues, key)
+      ? warrantyInputValues[key]
+      : String(fallback ?? 0);
+
+  const setWarrantyDraftValue = (key: string, nextRawValue: string, onCommit: (nextValue: number) => void) => {
+    const normalized = normalizeDecimalDraft(nextRawValue);
+    setWarrantyInputValues((prev) => ({ ...prev, [key]: normalized }));
+    onCommit(parseDecimalValue(normalized));
+  };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -186,11 +194,17 @@ export default function CategoryForm({
           <label className="space-y-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Min Margin (%)</span>
             <input
-              type="number"
-              min={0}
-              max={100}
-              value={values.min_margin}
-              onChange={(event) => setField("min_margin", Number(event.target.value) || 0)}
+              key={`${mode}-${category?.id ?? "new"}-min-margin`}
+              type="text"
+              inputMode="decimal"
+              defaultValue={String(values.min_margin ?? "")}
+              onChange={(event) => {
+                const normalized = normalizeDecimalDraft(event.target.value);
+                if (normalized !== event.target.value) {
+                  event.target.value = normalized;
+                }
+                setField("min_margin", parseDecimalValue(normalized));
+              }}
               className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"
               required
             />
@@ -244,13 +258,15 @@ export default function CategoryForm({
                     <option value="amount">Rp</option>
                   </select>
                   <input
-                    type="number"
-                    min={0}
-                    value={Number(warrantyPricing[row.key].value) || 0}
+                    type="text"
+                    inputMode={warrantyPricing[row.key].valueType === "amount" ? "numeric" : "decimal"}
+                    value={getWarrantyDraftValue(`pricing-${row.key}`, Number(warrantyPricing[row.key].value) || 0)}
                     onChange={(event) =>
-                      updateWarrantyPricing(row.key, {
-                        value: Number(event.target.value) || 0,
-                      })
+                      setWarrantyDraftValue(`pricing-${row.key}`, event.target.value, (nextValue) =>
+                        updateWarrantyPricing(row.key, {
+                          value: nextValue,
+                        })
+                      )
                     }
                     className="md:col-span-2 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
                     placeholder="Nilai"
@@ -291,13 +307,18 @@ export default function CategoryForm({
                       <option value="amount">Rp</option>
                     </select>
                     <input
-                      type="number"
-                      min={0}
-                      value={Number(component.value) || 0}
+                      type="text"
+                      inputMode={component.valueType === "amount" ? "numeric" : "decimal"}
+                      value={getWarrantyDraftValue(
+                        `component-${component.id ?? index}`,
+                        Number(component.value) || 0
+                      )}
                       onChange={(event) => {
-                        const next = [...warrantyComponents];
-                        next[index] = { ...next[index], value: Number(event.target.value) || 0 };
-                        updateWarrantyComponents(next);
+                        setWarrantyDraftValue(`component-${component.id ?? index}`, event.target.value, (nextValue) => {
+                          const next = [...warrantyComponents];
+                          next[index] = { ...next[index], value: nextValue };
+                          updateWarrantyComponents(next);
+                        });
                       }}
                       className="md:col-span-2 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
                       placeholder="Nilai"

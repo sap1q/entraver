@@ -104,6 +104,8 @@ export interface Product {
   name: string;
   slug: string;
   price: number;
+  offline_price?: number;
+  entraverse_price?: number;
   original_price?: number;
   discount_percentage?: number;
   rating: number;
@@ -219,6 +221,7 @@ export interface ProductFilters {
   price_max?: number;
   ratings?: number[];
   brands?: string[];
+  trade_in?: boolean;
   sort_by?: "popular" | "price_asc" | "price_desc" | "newest" | "rating";
   page?: number;
   per_page?: number;
@@ -234,6 +237,14 @@ export interface ProductApiResponse {
     total: number;
     per_page: number;
     filters?: ProductFilters;
+  };
+}
+
+export interface ProductSearchSuggestionResponse {
+  success: boolean;
+  data: Product[];
+  meta: {
+    keywords: string[];
   };
 }
 

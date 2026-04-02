@@ -1,6 +1,5 @@
-import Link from "next/link";
 import type { StorefrontProduct } from "@/lib/api/types";
-import ProductCard from "./ProductCard";
+import BestSellingProductsCarousel from "./BestSellingProductsCarousel";
 
 type BestSellingProductsProps = {
   products: StorefrontProduct[];
@@ -9,16 +8,16 @@ type BestSellingProductsProps = {
 
 export default function BestSellingProducts({ products, error }: BestSellingProductsProps) {
   return (
-    <section className="bg-white py-12">
+    <section className="bg-white py-14 md:py-16">
       <div className="mx-auto w-full max-w-7xl px-4 md:px-6">
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <h2 className="text-2xl font-bold text-slate-900 md:text-3xl">Produk Terlaris Kami</h2>
-          <Link
-            href="/products"
-            className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-          >
-            Selengkapnya
-          </Link>
+        <div className="mb-8 max-w-2xl space-y-2 md:mb-10">
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-500">LARIS MANIS</p>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-950 md:text-[2.15rem]">
+            Produk Terlaris
+          </h2>
+          <p className="text-sm leading-6 text-slate-500 md:text-[15px]">
+            Rekomendasi berdasarkan performa penjualan dan stok keluar.
+          </p>
         </div>
 
         {error ? (
@@ -32,11 +31,7 @@ export default function BestSellingProducts({ products, error }: BestSellingProd
             Belum ada produk best selling.
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {products.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
+          <BestSellingProductsCarousel products={products} />
         )}
       </div>
     </section>

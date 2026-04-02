@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
 import type { PhotoSlot } from "@/types/product";
 import { PRODUCT_MEDIA_MAX_PHOTOS, isInvalidPhotoValue } from "@/lib/product-media";
+import { resolveApiOriginUrl } from "@/lib/api-config";
 
 type MediaUploadProps = {
   photos: PhotoSlot[];
@@ -16,9 +17,6 @@ type ResolvedPhoto = {
   index: number;
   preview: string;
 };
-
-const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
-const API_BASE_URL = RAW_API_URL.replace(/\/api\/?$/i, "");
 
 const buildImageCandidates = (source: string): string[] => {
   const value = source.trim();
@@ -37,14 +35,14 @@ const buildImageCandidates = (source: string): string[] => {
   }
 
   if (value.startsWith("/")) {
-    push(`${API_BASE_URL}${value}`);
+    push(resolveApiOriginUrl(value));
     push(value);
     return Array.from(unique);
   }
 
-  push(`${API_BASE_URL}/storage/products/${value}`);
-  push(`${API_BASE_URL}/storage/${value}`);
-  push(`${API_BASE_URL}/${value}`);
+  push(resolveApiOriginUrl(`/storage/products/${value}`));
+  push(resolveApiOriginUrl(`/storage/${value}`));
+  push(resolveApiOriginUrl(value));
   push(value);
 
   return Array.from(unique);
